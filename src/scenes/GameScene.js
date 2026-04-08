@@ -97,6 +97,10 @@ export default class GameScene extends Phaser.Scene {
     this.lastX = this.player.x;
     this.lastY = this.player.y;
 
+    // --- Range indicator (drawn below player in world space) ---
+    this.rangeGfx = this.add.graphics().setDepth(0);
+    this._drawRange();
+
     // --- Camera ---
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setFollowOffset(0, -160);
@@ -176,12 +180,14 @@ export default class GameScene extends Phaser.Scene {
   _endTurn() {
     this.turnEnding = true;
     this.player.body.setVelocity(0, 0);
+    this._drawRange(); // hide range while turn is ending
     this.turnMsg.setVisible(true);
     this.time.delayedCall(1000, () => {
       this.turnMsg.setVisible(false);
       this.distLeft   = MAX_DISTANCE;
       this.turnEnding = false;
       this.movesText.setText(this._distLabel());
+      this._drawRange(); // restore full range circle
     });
   }
 
@@ -199,6 +205,7 @@ export default class GameScene extends Phaser.Scene {
       if (actualDist > 0) {
         this.distLeft = Math.max(0, this.distLeft - actualDist);
         this.movesText.setText(this._distLabel());
+        this._drawRange();
         if (this.distLeft <= 0) {
           this._endTurn();
         }
@@ -247,6 +254,25 @@ export default class GameScene extends Phaser.Scene {
     } else {
       body.setVelocity(0, 0);
     }
+  }
+
+  // ---------------------------------------------------------------
+
+  _drawRange() {
+    this.rangeGfx.clear();
+    if (this.turnEnding || this.distLeft <= 0) return;
+
+    const x = this.player.x;
+    const y = this.player.y;
+    const r = this.distLeft;
+
+    // Soft filled area
+    this.rangeGfx.fillStyle(0x4fc3f7, 0.10);
+    this.rangeGfx.fillCircle(x, y, r);
+
+    // Ring outline
+    this.rangeGfx.lineStyle(2, 0x4fc3f7, 0.5);
+    this.rangeGfx.strokeCircle(x, y, r);
   }
 
   // ---------------------------------------------------------------
