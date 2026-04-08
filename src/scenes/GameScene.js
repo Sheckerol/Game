@@ -127,8 +127,10 @@ export default class GameScene extends Phaser.Scene {
     this._updateDummyHp();
 
     // --- Turn state ---
-    this.distLeft   = MAX_DISTANCE;
-    this.turnEnding = false;
+    this.distLeft      = MAX_DISTANCE;
+    this.effectiveMax  = MAX_DISTANCE;
+    this.savedMovement = 0;
+    this.turnEnding    = false;
     this.lastX = this.player.x;
     this.lastY = this.player.y;
 
@@ -157,6 +159,15 @@ export default class GameScene extends Phaser.Scene {
       stroke: '#000000',
       strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+
+    // --- End Turn button (bottom-right) ---
+    this.endTurnBtn = this.add.circle(400, 720, 44, 0x2266cc)
+      .setScrollFactor(0).setDepth(10).setInteractive();
+    this.add.text(400, 720, 'END\nTURN', {
+      fontSize: '13px', color: '#ffffff', stroke: '#000000',
+      strokeThickness: 2, align: 'center',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    this.endTurnBtn.on('pointerdown', () => this._endTurnManual());
 
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -213,7 +224,16 @@ export default class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------
 
   _distLabel() {
-    return `Move: ${Math.ceil(this.distLeft)} / ${MAX_DISTANCE}`;
+    return `Move: ${Math.ceil(this.distLeft)} / ${this.effectiveMax}`;
+  }
+
+  _endTurnManual() {
+    if (this.turnEnding) return;
+    const save = Math.min(Math.floor(this.distLeft / 2), MAX_DISTANCE / 2);
+    this.savedMovement = save;
+    const msg = save > 0 ? `End of Turn!\n+${save} saved` : 'End of Turn!';
+    this.turnMsg.setText(msg);
+    this._endTurn();
   }
 
   _endTurn() {
@@ -224,11 +244,14 @@ export default class GameScene extends Phaser.Scene {
     this.turnMsg.setVisible(true);
     this.time.delayedCall(1000, () => {
       this.turnMsg.setVisible(false);
-      this.distLeft   = MAX_DISTANCE;
-      this.turnEnding = false;
+      const bonus       = this.savedMovement;
+      this.savedMovement = 0;
+      this.effectiveMax  = MAX_DISTANCE + bonus;
+      this.distLeft      = this.effectiveMax;
+      this.turnEnding    = false;
+      this.turnMsg.setText('End of Turn!'); // reset for natural end
       this.movesText.setText(this._distLabel());
       this._drawRange();
-  
     });
   }
 
