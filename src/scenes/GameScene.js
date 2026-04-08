@@ -7,6 +7,12 @@ const MAX_DISTANCE = 160;
 // Player speed in pixels/second
 const SPEED = 160;
 
+// Combat
+const ATTACK_RANGE = 80;  // max center-to-center distance to attack
+const ATTACK_COST  = 50;  // distLeft consumed per attack
+const BASE_DAMAGE  = 10;
+const DUMMY_HP     = 50;
+
 // Map layout: 1 = wall, 0 = floor
 // 20 columns x 25 rows
 const MAP = [
@@ -43,9 +49,9 @@ const WORLD_W  = MAP_COLS * TILE;
 const WORLD_H  = MAP_ROWS * TILE;
 
 // Virtual joystick config
-const JOY_RADIUS     = 50;
+const JOY_RADIUS      = 50;
 const JOY_KNOB_RADIUS = 22;
-const JOY_MARGIN     = 80;
+const JOY_MARGIN      = 80;
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -54,7 +60,7 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     // --- Draw map ---
-    // Depth order: floor (0) → range circle (1) → walls (2) → player (3)
+    // Depth order: floor (0) → range circle (1) → walls (2) → entities (3) → HP/labels (4) → UI (10)
     this.wallGroup = this.physics.add.staticGroup();
     const floorGfx = this.add.graphics().setDepth(0);
     const wallGfx  = this.add.graphics().setDepth(2);
@@ -93,13 +99,32 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.wallGroup);
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
+    // --- Training dummy ---
+    // Placed at col 13, row 12 — 96px from player start, just outside attack range
+    this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true };
+    this.dummyRect = this.add.rectangle(
+      13 * TILE + TILE / 2,
+      12 * TILE + TILE / 2,
+      TILE - 4, TILE - 4, 0xf5a623
+    ).setDepth(3);
+    this.physics.add.existing(this.dummyRect, true);
+    this.physics.add.collider(this.player, this.dummyRect);
+
+    this.add.text(
+      this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4,
+      'DUMMY', { fontSize: '9px', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }
+    ).setOrigin(0.5, 1).setDepth(4);
+
+    this.dummyHpGfx = this.add.graphics().setDepth(4);
+    this._updateDummyHp();
+
     // --- Turn state ---
     this.distLeft   = MAX_DISTANCE;
     this.turnEnding = false;
     this.lastX = this.player.x;
     this.lastY = this.player.y;
 
-    // --- Range indicator (drawn below player in world space) ---
+    // --- Range indicator ---
     this.rangeGfx = this.add.graphics().setDepth(1);
     this._drawRange();
 
@@ -107,7 +132,7 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setFollowOffset(0, -160);
 
-    // --- UI ---
+    // --- UI: move counter ---
     this.movesText = this.add.text(240, 20, this._distLabel(), {
       fontSize: '18px',
       color: '#ffffff',
@@ -115,12 +140,22 @@ export default class GameScene extends Phaser.Scene {
       strokeThickness: 3,
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
 
+    // --- UI: end of turn message ---
     this.turnMsg = this.add.text(240, 400, 'End of Turn!', {
       fontSize: '28px',
       color: '#f5a623',
       stroke: '#000000',
       strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(10).setVisible(false);
+
+    // --- Attack button (bottom-right, mirroring joystick) ---
+    this.atkBtn = this.add.circle(400, 720, 44, 0xcc2222)
+      .setScrollFactor(0).setDepth(10).setInteractive();
+    this.atkBtnLabel = this.add.text(400, 720, 'ATK', {
+      fontSize: '18px', color: '#ffffff', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    this.atkBtn.on('pointerdown', () => this._tryAttack());
+    this._updateAttackBtn();
 
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -182,14 +217,108 @@ export default class GameScene extends Phaser.Scene {
   _endTurn() {
     this.turnEnding = true;
     this.player.body.setVelocity(0, 0);
-    this._drawRange(); // hide range while turn is ending
+    this._drawRange();
+    this._updateAttackBtn();
     this.turnMsg.setVisible(true);
     this.time.delayedCall(1000, () => {
       this.turnMsg.setVisible(false);
       this.distLeft   = MAX_DISTANCE;
       this.turnEnding = false;
       this.movesText.setText(this._distLabel());
-      this._drawRange(); // restore full range circle
+      this._drawRange();
+      this._updateAttackBtn();
+    });
+  }
+
+  // ---------------------------------------------------------------
+
+  _canAttack() {
+    if (!this.dummy.alive || this.turnEnding || this.distLeft < ATTACK_COST) return false;
+    return Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y
+    ) <= ATTACK_RANGE;
+  }
+
+  _tryAttack() {
+    if (!this._canAttack()) return;
+
+    // Consume movement cost
+    this.distLeft = Math.max(0, this.distLeft - ATTACK_COST);
+    this.movesText.setText(this._distLabel());
+    this._drawRange();
+
+    // Roll d20
+    const roll = Phaser.Math.Between(1, 20);
+    let damage = BASE_DAMAGE;
+    let dmgLabel = `-${damage}`;
+    let dmgColor = '#ff4444';
+
+    if (roll === 20) {
+      damage  = BASE_DAMAGE * 2;
+      dmgLabel = `CRIT! -${damage}`;
+      dmgColor = '#ffdd00';
+    } else if (roll === 1) {
+      damage  = Math.floor(BASE_DAMAGE / 2);
+      dmgLabel = `WEAK -${damage}`;
+      dmgColor = '#aaaaaa';
+    }
+
+    // Show roll above, damage below
+    this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 28, `Roll: ${roll}`, '#ffffff');
+    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8,  dmgLabel, dmgColor);
+
+    // Apply damage
+    this.dummy.hp = Math.max(0, this.dummy.hp - damage);
+    this._updateDummyHp();
+
+    if (this.dummy.hp <= 0) {
+      this.dummy.alive = false;
+      this.dummyRect.setFillStyle(0x555555);
+      this.dummyRect.body.enable = false; // allow walking through corpse
+      this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 54, 'Defeated!', '#ffffff');
+    }
+
+    this._updateAttackBtn();
+    if (this.distLeft <= 0) this._endTurn();
+  }
+
+  _updateDummyHp() {
+    this.dummyHpGfx.clear();
+    if (!this.dummy.alive) return;
+
+    const barW = TILE;
+    const barH = 5;
+    const bx   = this.dummyRect.x - barW / 2;
+    const by   = this.dummyRect.y - TILE / 2 - 7;
+
+    this.dummyHpGfx.fillStyle(0x333333, 1);
+    this.dummyHpGfx.fillRect(bx, by, barW, barH);
+
+    const pct   = this.dummy.hp / this.dummy.maxHp;
+    const color = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
+    this.dummyHpGfx.fillStyle(color, 1);
+    this.dummyHpGfx.fillRect(bx, by, barW * pct, barH);
+  }
+
+  _updateAttackBtn() {
+    const can = this._canAttack();
+    this.atkBtn.setFillStyle(can ? 0xcc2222 : 0x555555);
+    this.atkBtnLabel.setAlpha(can ? 1 : 0.4);
+  }
+
+  _showFloatingText(x, y, text, color = '#ffffff') {
+    const t = this.add.text(x, y, text, {
+      fontSize: '18px', color,
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20);
+
+    this.tweens.add({
+      targets: t,
+      y: y - 50,
+      alpha: 0,
+      duration: 1200,
+      ease: 'Power2',
+      onComplete: () => t.destroy(),
     });
   }
 
@@ -198,8 +327,7 @@ export default class GameScene extends Phaser.Scene {
   update(_time, delta) {
     const body = this.player.body;
 
-    // --- Track actual distance traveled (post-physics position from last frame) ---
-    // This means walls blocking movement don't eat the budget.
+    // Track actual distance traveled
     if (!this.turnEnding) {
       const dx = this.player.x - this.lastX;
       const dy = this.player.y - this.lastY;
@@ -208,6 +336,7 @@ export default class GameScene extends Phaser.Scene {
         this.distLeft = Math.max(0, this.distLeft - actualDist);
         this.movesText.setText(this._distLabel());
         this._drawRange();
+        this._updateAttackBtn();
         if (this.distLeft <= 0) {
           this._endTurn();
         }
@@ -221,7 +350,7 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    // --- Read input direction ---
+    // Read input direction
     let vx = 0, vy = 0;
 
     if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -SPEED;
@@ -244,7 +373,6 @@ export default class GameScene extends Phaser.Scene {
     if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
 
     if (this.distLeft > 0 && (vx !== 0 || vy !== 0)) {
-      // Scale velocity on the final frame so we don't overshoot the budget
       const frameSpeed = Math.sqrt(vx * vx + vy * vy);
       const frameDist  = frameSpeed * (delta / 1000);
       if (frameDist > this.distLeft) {
@@ -266,13 +394,10 @@ export default class GameScene extends Phaser.Scene {
 
     const x = this.player.x;
     const y = this.player.y;
-    const r = this.distLeft + (TILE - 4) / 2; // offset to player's outer edge
+    const r = this.distLeft + (TILE - 4) / 2;
 
-    // Soft filled area
     this.rangeGfx.fillStyle(0x4fc3f7, 0.10);
     this.rangeGfx.fillCircle(x, y, r);
-
-    // Ring outline
     this.rangeGfx.lineStyle(2, 0x4fc3f7, 0.5);
     this.rangeGfx.strokeCircle(x, y, r);
   }
