@@ -54,26 +54,28 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     // --- Draw map ---
+    // Depth order: floor (0) → range circle (1) → walls (2) → player (3)
     this.wallGroup = this.physics.add.staticGroup();
-    const gfx = this.add.graphics();
+    const floorGfx = this.add.graphics().setDepth(0);
+    const wallGfx  = this.add.graphics().setDepth(2);
 
     for (let row = 0; row < MAP_ROWS; row++) {
       for (let col = 0; col < MAP_COLS; col++) {
         const x = col * TILE;
         const y = row * TILE;
         if (MAP[row][col] === 1) {
-          gfx.fillStyle(0x3d405b, 1);
-          gfx.fillRect(x, y, TILE, TILE);
-          gfx.lineStyle(1, 0x2b2d42, 1);
-          gfx.strokeRect(x, y, TILE, TILE);
+          wallGfx.fillStyle(0x3d405b, 1);
+          wallGfx.fillRect(x, y, TILE, TILE);
+          wallGfx.lineStyle(1, 0x2b2d42, 1);
+          wallGfx.strokeRect(x, y, TILE, TILE);
 
           const wall = this.add.rectangle(x + TILE / 2, y + TILE / 2, TILE, TILE);
           this.physics.add.existing(wall, true);
           this.wallGroup.add(wall);
         } else {
           const shade = (row + col) % 2 === 0 ? 0x16213e : 0x0f3460;
-          gfx.fillStyle(shade, 1);
-          gfx.fillRect(x, y, TILE, TILE);
+          floorGfx.fillStyle(shade, 1);
+          floorGfx.fillRect(x, y, TILE, TILE);
         }
       }
     }
@@ -85,7 +87,7 @@ export default class GameScene extends Phaser.Scene {
       startCol * TILE + TILE / 2,
       startRow * TILE + TILE / 2,
       TILE - 4, TILE - 4, 0xe94560
-    );
+    ).setDepth(3);
     this.physics.add.existing(this.player);
     this.player.body.setCollideWorldBounds(true);
     this.physics.add.collider(this.player, this.wallGroup);
@@ -98,7 +100,7 @@ export default class GameScene extends Phaser.Scene {
     this.lastY = this.player.y;
 
     // --- Range indicator (drawn below player in world space) ---
-    this.rangeGfx = this.add.graphics().setDepth(0);
+    this.rangeGfx = this.add.graphics().setDepth(1);
     this._drawRange();
 
     // --- Camera ---
