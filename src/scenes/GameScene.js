@@ -266,7 +266,7 @@ export default class GameScene extends Phaser.Scene {
 
     const x = this.player.x;
     const y = this.player.y;
-    const r = this.distLeft;
+    const r = this.distLeft + (TILE - 4) / 2; // offset to player's outer edge
 
     // Soft filled area
     this.rangeGfx.fillStyle(0x4fc3f7, 0.10);
