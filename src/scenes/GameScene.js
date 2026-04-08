@@ -107,9 +107,16 @@ export default class GameScene extends Phaser.Scene {
       13 * TILE + TILE / 2,
       12 * TILE + TILE / 2,
       TILE - 4, TILE - 4, 0xf5a623
-    ).setDepth(3);
+    ).setDepth(3).setInteractive();
     this.physics.add.existing(this.dummyRect, true);
     this.physics.add.collider(this.player, this.dummyRect);
+
+    // Tap enemy to attack — flag prevents joystick activating on same touch
+    this.justAttacked = false;
+    this.dummyRect.on('pointerdown', () => {
+      this.justAttacked = true;
+      this._tryAttack();
+    });
 
     this.add.text(
       this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4,
@@ -151,15 +158,6 @@ export default class GameScene extends Phaser.Scene {
       strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(10).setVisible(false);
 
-    // --- Attack button (bottom-right, mirroring joystick) ---
-    this.atkBtn = this.add.circle(400, 720, 44, 0xcc2222)
-      .setScrollFactor(0).setDepth(10).setInteractive();
-    this.atkBtnLabel = this.add.text(400, 720, 'ATK', {
-      fontSize: '18px', color: '#ffffff', stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
-    this.atkBtn.on('pointerdown', () => this._tryAttack());
-    this._updateAttackBtn();
-
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = {
@@ -175,6 +173,7 @@ export default class GameScene extends Phaser.Scene {
     this._drawJoystick(JOY_MARGIN, 800 - JOY_MARGIN, 0, 0, false);
 
     this.input.on('pointerdown', (ptr) => {
+      if (this.justAttacked) { this.justAttacked = false; return; }
       if (ptr.x < 240 && !this.joy.active) {
         this.joy.active = true;
         this.joy.pointerId = ptr.id;
@@ -221,7 +220,7 @@ export default class GameScene extends Phaser.Scene {
     this.turnEnding = true;
     this.player.body.setVelocity(0, 0);
     this._drawRange();
-    this._updateAttackBtn();
+
     this.turnMsg.setVisible(true);
     this.time.delayedCall(1000, () => {
       this.turnMsg.setVisible(false);
@@ -229,7 +228,7 @@ export default class GameScene extends Phaser.Scene {
       this.turnEnding = false;
       this.movesText.setText(this._distLabel());
       this._drawRange();
-      this._updateAttackBtn();
+  
     });
   }
 
@@ -283,7 +282,7 @@ export default class GameScene extends Phaser.Scene {
       this._drawAttackRange(); // clear ring once enemy is dead
     }
 
-    this._updateAttackBtn();
+
     if (this.distLeft <= 0) this._endTurn();
   }
 
@@ -303,12 +302,6 @@ export default class GameScene extends Phaser.Scene {
     const color = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
     this.dummyHpGfx.fillStyle(color, 1);
     this.dummyHpGfx.fillRect(bx, by, barW * pct, barH);
-  }
-
-  _updateAttackBtn() {
-    const can = this._canAttack();
-    this.atkBtn.setFillStyle(can ? 0xcc2222 : 0x555555);
-    this.atkBtnLabel.setAlpha(can ? 1 : 0.4);
   }
 
   _showFloatingText(x, y, text, color = '#ffffff') {
@@ -342,7 +335,7 @@ export default class GameScene extends Phaser.Scene {
         this.movesText.setText(this._distLabel());
         this._drawRange();
         this._drawAttackRange();
-        this._updateAttackBtn();
+    
         if (this.distLeft <= 0) {
           this._endTurn();
         }
