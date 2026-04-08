@@ -94,6 +94,8 @@ export default class GameScene extends Phaser.Scene {
     // --- Turn state ---
     this.distLeft   = MAX_DISTANCE;
     this.turnEnding = false;
+    this.lastX = this.player.x;
+    this.lastY = this.player.y;
 
     // --- Camera ---
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
@@ -188,12 +190,29 @@ export default class GameScene extends Phaser.Scene {
   update(_time, delta) {
     const body = this.player.body;
 
+    // --- Track actual distance traveled (post-physics position from last frame) ---
+    // This means walls blocking movement don't eat the budget.
+    if (!this.turnEnding) {
+      const dx = this.player.x - this.lastX;
+      const dy = this.player.y - this.lastY;
+      const actualDist = Math.sqrt(dx * dx + dy * dy);
+      if (actualDist > 0) {
+        this.distLeft = Math.max(0, this.distLeft - actualDist);
+        this.movesText.setText(this._distLabel());
+        if (this.distLeft <= 0) {
+          this._endTurn();
+        }
+      }
+    }
+    this.lastX = this.player.x;
+    this.lastY = this.player.y;
+
     if (this.turnEnding) {
       body.setVelocity(0, 0);
       return;
     }
 
-    // Read input direction
+    // --- Read input direction ---
     let vx = 0, vy = 0;
 
     if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -SPEED;
@@ -216,26 +235,15 @@ export default class GameScene extends Phaser.Scene {
     if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
 
     if (this.distLeft > 0 && (vx !== 0 || vy !== 0)) {
-      // How far would we travel this frame at this velocity?
+      // Scale velocity on the final frame so we don't overshoot the budget
       const frameSpeed = Math.sqrt(vx * vx + vy * vy);
       const frameDist  = frameSpeed * (delta / 1000);
-
-      if (frameDist >= this.distLeft) {
-        // Scale velocity so we use exactly the remaining distance
+      if (frameDist > this.distLeft) {
         const scale = this.distLeft / frameDist;
         vx *= scale;
         vy *= scale;
-        this.distLeft = 0;
-      } else {
-        this.distLeft -= frameDist;
       }
-
       body.setVelocity(vx, vy);
-      this.movesText.setText(this._distLabel());
-
-      if (this.distLeft <= 0) {
-        this._endTurn();
-      }
     } else {
       body.setVelocity(0, 0);
     }
