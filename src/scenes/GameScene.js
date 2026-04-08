@@ -8,10 +8,11 @@ const MAX_DISTANCE = 160;
 const SPEED = 160;
 
 // Combat
-const ATTACK_RANGE = 80;  // max center-to-center distance to attack
-const ATTACK_COST  = 50;  // distLeft consumed per attack
-const BASE_DAMAGE  = 10;
-const DUMMY_HP     = 50;
+const ATTACK_RANGE  = 80;           // max edge-to-edge distance to attack
+const ATTACK_COST   = 50;           // distLeft consumed per attack
+const BASE_DAMAGE   = 10;
+const DUMMY_HP      = 50;
+const PLAYER_HALF   = (TILE - 4) / 2;  // half-size of the player body
 
 // Map layout: 1 = wall, 0 = floor
 // 20 columns x 25 rows
@@ -101,7 +102,7 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Training dummy ---
     // Placed at col 13, row 12 — 96px from player start, just outside attack range
-    this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true };
+    this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2 };
     this.dummyRect = this.add.rectangle(
       13 * TILE + TILE / 2,
       12 * TILE + TILE / 2,
@@ -236,9 +237,10 @@ export default class GameScene extends Phaser.Scene {
 
   _canAttack() {
     if (!this.dummy.alive || this.turnEnding || this.distLeft < ATTACK_COST) return false;
-    return Phaser.Math.Distance.Between(
+    const centerDist = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y
-    ) <= ATTACK_RANGE;
+    );
+    return centerDist - PLAYER_HALF - this.dummy.halfSize <= ATTACK_RANGE;
   }
 
   _tryAttack() {
@@ -397,7 +399,7 @@ export default class GameScene extends Phaser.Scene {
     if (!this.dummy.alive) return;
 
     this.atkRangeGfx.lineStyle(1.5, 0xff4444, 0.5);
-    this.atkRangeGfx.strokeCircle(this.player.x, this.player.y, ATTACK_RANGE);
+    this.atkRangeGfx.strokeCircle(this.player.x, this.player.y, ATTACK_RANGE + PLAYER_HALF);
   }
 
   // ---------------------------------------------------------------
