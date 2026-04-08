@@ -273,7 +273,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.dummy.hp <= 0) {
       this.dummy.alive = false;
-      this.dummyRect.setFillStyle(0x555555);
+      this.dummyRect.setFillStyle(0x555555).setDepth(2);
       this.dummyRect.body.enable = false; // allow walking through corpse
       this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 54, 'Defeated!', '#ffffff');
     }
