@@ -124,9 +124,11 @@ export default class GameScene extends Phaser.Scene {
     this.lastX = this.player.x;
     this.lastY = this.player.y;
 
-    // --- Range indicator ---
-    this.rangeGfx = this.add.graphics().setDepth(1);
+    // --- Range indicators ---
+    this.rangeGfx      = this.add.graphics().setDepth(1);
+    this.atkRangeGfx   = this.add.graphics().setDepth(1);
     this._drawRange();
+    this._drawAttackRange();
 
     // --- Camera ---
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
@@ -276,6 +278,7 @@ export default class GameScene extends Phaser.Scene {
       this.dummyRect.setFillStyle(0x555555).setDepth(2);
       this.dummyRect.body.enable = false; // allow walking through corpse
       this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 54, 'Defeated!', '#ffffff');
+      this._drawAttackRange(); // clear ring once enemy is dead
     }
 
     this._updateAttackBtn();
@@ -336,6 +339,7 @@ export default class GameScene extends Phaser.Scene {
         this.distLeft = Math.max(0, this.distLeft - actualDist);
         this.movesText.setText(this._distLabel());
         this._drawRange();
+        this._drawAttackRange();
         this._updateAttackBtn();
         if (this.distLeft <= 0) {
           this._endTurn();
@@ -384,6 +388,16 @@ export default class GameScene extends Phaser.Scene {
     } else {
       body.setVelocity(0, 0);
     }
+  }
+
+  // ---------------------------------------------------------------
+
+  _drawAttackRange() {
+    this.atkRangeGfx.clear();
+    if (!this.dummy.alive) return;
+
+    this.atkRangeGfx.lineStyle(1.5, 0xff4444, 0.5);
+    this.atkRangeGfx.strokeCircle(this.player.x, this.player.y, ATTACK_RANGE);
   }
 
   // ---------------------------------------------------------------
