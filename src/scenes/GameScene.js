@@ -1,8 +1,11 @@
 // Tile size in pixels
 const TILE = 32;
 
-// Moves allowed per turn
-const MAX_MOVES = 4;
+// Movement budget per turn (pixels)
+const MAX_DISTANCE = 160;
+
+// Player speed in pixels/second
+const SPEED = 160;
 
 // Map layout: 1 = wall, 0 = floor
 // 20 columns x 25 rows
@@ -36,15 +39,13 @@ const MAP = [
 
 const MAP_COLS = MAP[0].length;
 const MAP_ROWS = MAP.length;
+const WORLD_W  = MAP_COLS * TILE;
+const WORLD_H  = MAP_ROWS * TILE;
 
 // Virtual joystick config
-const JOY_RADIUS = 50;
+const JOY_RADIUS     = 50;
 const JOY_KNOB_RADIUS = 22;
-const JOY_MARGIN = 80;
-
-// Hold-to-repeat timing (ms)
-const REPEAT_INITIAL = 300; // delay before first repeat
-const REPEAT_RATE    = 180; // interval between repeats after that
+const JOY_MARGIN     = 80;
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -52,8 +53,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // --- Draw map (visual only — collision checked via MAP array) ---
+    // --- Draw map ---
+    this.wallGroup = this.physics.add.staticGroup();
     const gfx = this.add.graphics();
+
     for (let row = 0; row < MAP_ROWS; row++) {
       for (let col = 0; col < MAP_COLS; col++) {
         const x = col * TILE;
@@ -63,6 +66,10 @@ export default class GameScene extends Phaser.Scene {
           gfx.fillRect(x, y, TILE, TILE);
           gfx.lineStyle(1, 0x2b2d42, 1);
           gfx.strokeRect(x, y, TILE, TILE);
+
+          const wall = this.add.rectangle(x + TILE / 2, y + TILE / 2, TILE, TILE);
+          this.physics.add.existing(wall, true);
+          this.wallGroup.add(wall);
         } else {
           const shade = (row + col) % 2 === 0 ? 0x16213e : 0x0f3460;
           gfx.fillStyle(shade, 1);
@@ -72,25 +79,28 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // --- Player ---
-    this.tileX = Math.floor(MAP_COLS / 2);
-    this.tileY = Math.floor(MAP_ROWS / 2);
+    const startCol = Math.floor(MAP_COLS / 2);
+    const startRow = Math.floor(MAP_ROWS / 2);
     this.player = this.add.rectangle(
-      this.tileX * TILE + TILE / 2,
-      this.tileY * TILE + TILE / 2,
+      startCol * TILE + TILE / 2,
+      startRow * TILE + TILE / 2,
       TILE - 4, TILE - 4, 0xe94560
     );
+    this.physics.add.existing(this.player);
+    this.player.body.setCollideWorldBounds(true);
+    this.physics.add.collider(this.player, this.wallGroup);
+    this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     // --- Turn state ---
-    this.movesLeft  = MAX_MOVES;
-    this.moving     = false; // true while tween is playing
-    this.turnEnding = false; // true during the end-of-turn pause
+    this.distLeft   = MAX_DISTANCE;
+    this.turnEnding = false;
 
     // --- Camera ---
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setFollowOffset(0, -160);
 
     // --- UI ---
-    this.movesText = this.add.text(240, 20, this._movesLabel(), {
+    this.movesText = this.add.text(240, 20, this._distLabel(), {
       fontSize: '18px',
       color: '#ffffff',
       stroke: '#000000',
@@ -112,11 +122,6 @@ export default class GameScene extends Phaser.Scene {
       left:  this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     };
-
-    // Hold-to-repeat tracking
-    this.moveDir     = { x: 0, y: 0 };
-    this.moveHeld    = 0;
-    this.repeatCount = 0;
 
     // --- Virtual joystick ---
     this.joy = { active: false, pointerId: null, baseX: 0, baseY: 0, dx: 0, dy: 0 };
@@ -162,99 +167,77 @@ export default class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------
 
-  _movesLabel() {
-    return `Moves: ${this.movesLeft} / ${MAX_MOVES}`;
-  }
-
-  tryMove(dx, dy) {
-    if (this.moving || this.turnEnding || this.movesLeft <= 0) return;
-
-    const nx = this.tileX + dx;
-    const ny = this.tileY + dy;
-
-    // Map bounds + wall check
-    if (nx < 0 || nx >= MAP_COLS || ny < 0 || ny >= MAP_ROWS) return;
-    if (MAP[ny][nx] === 1) return;
-
-    this.tileX = nx;
-    this.tileY = ny;
-    this.movesLeft--;
-    this.movesText.setText(this._movesLabel());
-    this.moving = true;
-
-    this.tweens.add({
-      targets: this.player,
-      x: nx * TILE + TILE / 2,
-      y: ny * TILE + TILE / 2,
-      duration: 110,
-      ease: 'Power2',
-      onComplete: () => {
-        this.moving = false;
-        if (this.movesLeft === 0) this._endTurn();
-      },
-    });
+  _distLabel() {
+    return `Move: ${Math.ceil(this.distLeft)} / ${MAX_DISTANCE}`;
   }
 
   _endTurn() {
     this.turnEnding = true;
+    this.player.body.setVelocity(0, 0);
     this.turnMsg.setVisible(true);
     this.time.delayedCall(1000, () => {
       this.turnMsg.setVisible(false);
-      this.movesLeft = MAX_MOVES;
-      this.movesText.setText(this._movesLabel());
+      this.distLeft   = MAX_DISTANCE;
       this.turnEnding = false;
+      this.movesText.setText(this._distLabel());
     });
   }
 
   // ---------------------------------------------------------------
 
   update(_time, delta) {
-    // Read cardinal direction from keyboard or joystick
-    let dx = 0, dy = 0;
+    const body = this.player.body;
 
-    if (this.cursors.left.isDown  || this.wasd.left.isDown)  dx = -1;
-    else if (this.cursors.right.isDown || this.wasd.right.isDown) dx =  1;
-
-    if (dx === 0) {
-      if (this.cursors.up.isDown   || this.wasd.up.isDown)   dy = -1;
-      else if (this.cursors.down.isDown  || this.wasd.down.isDown)  dy =  1;
+    if (this.turnEnding) {
+      body.setVelocity(0, 0);
+      return;
     }
 
-    // Joystick: snap to dominant axis
+    // Read input direction
+    let vx = 0, vy = 0;
+
+    if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -SPEED;
+    else if (this.cursors.right.isDown || this.wasd.right.isDown) vx =  SPEED;
+    if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -SPEED;
+    else if (this.cursors.down.isDown  || this.wasd.down.isDown)  vy =  SPEED;
+
+    // Joystick overrides keyboard
     if (this.joy.active) {
-      const ax = Math.abs(this.joy.dx), ay = Math.abs(this.joy.dy);
-      const threshold = JOY_RADIUS * 0.35;
-      if (ax > threshold || ay > threshold) {
-        if (ax >= ay) { dx = this.joy.dx > 0 ? 1 : -1; dy = 0; }
-        else          { dy = this.joy.dy > 0 ? 1 : -1; dx = 0; }
+      const norm = Math.sqrt(this.joy.dx ** 2 + this.joy.dy ** 2);
+      if (norm > JOY_RADIUS * 0.1) {
+        vx = (this.joy.dx / JOY_RADIUS) * SPEED;
+        vy = (this.joy.dy / JOY_RADIUS) * SPEED;
       } else {
-        dx = 0; dy = 0;
+        vx = 0; vy = 0;
       }
     }
 
-    // Hold-to-repeat: move immediately on direction change, then repeat after delays
-    const sameDir = dx === this.moveDir.x && dy === this.moveDir.y;
+    // Normalize diagonal
+    if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
 
-    if (dx !== 0 || dy !== 0) {
-      if (!sameDir) {
-        this.moveDir     = { x: dx, y: dy };
-        this.moveHeld    = 0;
-        this.repeatCount = 0;
-        this.tryMove(dx, dy);
+    if (this.distLeft > 0 && (vx !== 0 || vy !== 0)) {
+      // How far would we travel this frame at this velocity?
+      const frameSpeed = Math.sqrt(vx * vx + vy * vy);
+      const frameDist  = frameSpeed * (delta / 1000);
+
+      if (frameDist >= this.distLeft) {
+        // Scale velocity so we use exactly the remaining distance
+        const scale = this.distLeft / frameDist;
+        vx *= scale;
+        vy *= scale;
+        this.distLeft = 0;
       } else {
-        this.moveHeld += delta;
-        const newCount = this.moveHeld < REPEAT_INITIAL
-          ? 0
-          : Math.floor((this.moveHeld - REPEAT_INITIAL) / REPEAT_RATE) + 1;
-        if (newCount > this.repeatCount) {
-          this.repeatCount = newCount;
-          this.tryMove(dx, dy);
-        }
+        this.distLeft -= frameDist;
       }
-    } else if (this.moveDir.x !== 0 || this.moveDir.y !== 0) {
-      this.moveDir     = { x: 0, y: 0 };
-      this.moveHeld    = 0;
-      this.repeatCount = 0;
+
+      body.setVelocity(vx, vy);
+      this.movesText.setText(this._distLabel());
+
+      if (this.distLeft <= 0) {
+        this._endTurn();
+      }
+    } else {
+      body.setVelocity(0, 0);
     }
   }
 
