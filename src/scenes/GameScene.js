@@ -97,6 +97,7 @@ export default class GameScene extends Phaser.Scene {
     // --- Camera ---
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    this.cameras.main.setFollowOffset(0, -160); // render player in upper portion, away from joystick
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     // --- Keyboard input ---
