@@ -104,24 +104,26 @@ export default class GameScene extends Phaser.Scene {
     this._losLine = new Phaser.Geom.Line();
     const startCol = Math.floor(MAP_COLS / 2);
     const startRow = Math.floor(MAP_ROWS / 2);
-    this.player = this.add.rectangle(
+    this.player = this.add.circle(
       startCol * TILE + TILE / 2,
       startRow * TILE + TILE / 2,
-      TILE - 4, TILE - 4, 0xe94560
+      PLAYER_HALF, 0xe94560
     ).setDepth(3);
     this.physics.add.existing(this.player);
+    this.player.body.setCircle(PLAYER_HALF);
     this.player.body.setCollideWorldBounds(true);
     this.physics.add.collider(this.player, this.wallGroup);
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     // --- Training dummy ---
     this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2, weapon: WEAPONS[1], defeatedAtTurn: -1 };
-    this.dummyRect = this.add.rectangle(
+    this.dummyRect = this.add.circle(
       13 * TILE + TILE / 2,
       12 * TILE + TILE / 2,
-      TILE - 4, TILE - 4, 0xf5a623
+      this.dummy.halfSize, 0xf5a623
     ).setDepth(3).setInteractive();
     this.physics.add.existing(this.dummyRect);
+    this.dummyRect.body.setCircle(this.dummy.halfSize);
     this.dummyRect.body.pushable = false;
     this.physics.add.collider(this.player, this.dummyRect);
     this.physics.add.collider(this.dummyRect, this.wallGroup);
