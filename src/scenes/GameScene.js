@@ -372,8 +372,8 @@ export default class GameScene extends Phaser.Scene {
 
       rowBg.on('pointerdown', () => {
         this.justAttacked = true;
-        this._equipWeapon(weapon);
         this._closeInventory();
+        this._equipWeapon(weapon);
       });
 
       const nameText = this.add.text(cx - panelW / 2 + 24, rowY, weapon.name, {
