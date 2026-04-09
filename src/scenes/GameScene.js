@@ -344,22 +344,23 @@ export default class GameScene extends Phaser.Scene {
   _buildInventoryPanel() {
     const cx = 240, cy = 430;
     const panelW = 380, panelH = 360;
+    const SF = 0, D = 25; // scrollFactor, depth
 
     // Darkened overlay — blocks touches behind the panel
     const overlay = this.add.rectangle(240, 400, 480, 800, 0x000000, 0.65)
-      .setInteractive();
+      .setScrollFactor(SF).setDepth(D).setInteractive();
 
     // Panel background
     const bg = this.add.rectangle(cx, cy, panelW, panelH, 0x1a1a2e)
-      .setStrokeStyle(2, 0x4fc3f7);
+      .setStrokeStyle(2, 0x4fc3f7).setScrollFactor(SF).setDepth(D);
 
     // Title
     const title = this.add.text(cx, cy - panelH / 2 + 26, 'INVENTORY', {
       fontSize: '20px', color: '#4fc3f7',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setScrollFactor(SF).setDepth(D);
 
-    const allElements = [overlay, bg, title];
+    this.invElements = [overlay, bg, title];
     this.invRows = []; // { rowBg, nameText, weapon }
 
     WEAPONS.forEach((weapon, i) => {
@@ -367,7 +368,7 @@ export default class GameScene extends Phaser.Scene {
 
       const rowBg = this.add.rectangle(cx, rowY, panelW - 24, 64, 0x2a2a4a)
         .setStrokeStyle(1, 0x444466)
-        .setInteractive();
+        .setScrollFactor(SF).setDepth(D).setInteractive();
 
       rowBg.on('pointerdown', () => {
         this.justAttacked = true;
@@ -378,14 +379,14 @@ export default class GameScene extends Phaser.Scene {
       const nameText = this.add.text(cx - panelW / 2 + 24, rowY, weapon.name, {
         fontSize: '17px', color: '#ffffff',
         stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0, 0.5);
+      }).setOrigin(0, 0.5).setScrollFactor(SF).setDepth(D);
 
       const statsText = this.add.text(cx + panelW / 2 - 20, rowY,
         `Rng:${weapon.range}   Dmg:${weapon.damage}   Cost:${weapon.cost}`, {
           fontSize: '12px', color: '#aaaacc',
-        }).setOrigin(1, 0.5);
+        }).setOrigin(1, 0.5).setScrollFactor(SF).setDepth(D);
 
-      allElements.push(rowBg, nameText, statsText);
+      this.invElements.push(rowBg, nameText, statsText);
       this.invRows.push({ rowBg, nameText, weapon });
     });
 
@@ -393,27 +394,27 @@ export default class GameScene extends Phaser.Scene {
     const closeBtn = this.add.text(cx, cy + panelH / 2 - 26, '[ CLOSE ]', {
       fontSize: '16px', color: '#ff6666',
       stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5).setInteractive();
+    }).setOrigin(0.5).setScrollFactor(SF).setDepth(D).setInteractive();
 
     closeBtn.on('pointerdown', () => {
       this.justAttacked = true;
       this._closeInventory();
     });
 
-    allElements.push(closeBtn);
+    this.invElements.push(closeBtn);
 
-    this.inventoryContainer = this.add.container(0, 0, allElements)
-      .setScrollFactor(0).setDepth(25).setVisible(false);
+    // Hide all by default
+    this.invElements.forEach(el => el.setVisible(false));
   }
 
   _openInventory() {
     this._refreshInvHighlights();
-    this.inventoryContainer.setVisible(true);
+    this.invElements.forEach(el => el.setVisible(true));
     this.inventoryOpen = true;
   }
 
   _closeInventory() {
-    this.inventoryContainer.setVisible(false);
+    this.invElements.forEach(el => el.setVisible(false));
     this.inventoryOpen = false;
   }
 
