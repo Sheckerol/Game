@@ -111,7 +111,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     // --- Training dummy ---
-    this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2, weapon: WEAPONS[1] };
+    this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2, weapon: WEAPONS[1], defeatedAtTurn: -1 };
     this.dummyRect = this.add.rectangle(
       13 * TILE + TILE / 2,
       12 * TILE + TILE / 2,
@@ -137,6 +137,7 @@ export default class GameScene extends Phaser.Scene {
     this._updateDummyHp();
 
     // --- Turn state ---
+    this.turnCount      = 0;
     this.distLeft       = MAX_DISTANCE;
     this.effectiveMax   = MAX_DISTANCE;
     this.savedMovement  = 0;
@@ -436,6 +437,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _startPlayerTurn() {
+    this.turnCount++;
+
+    if (!this.dummy.alive && this.turnCount - this.dummy.defeatedAtTurn >= 3) {
+      this._resurrectDummy();
+    }
+
     const bonus         = this.savedMovement;
     this.savedMovement  = 0;
     this.braceTriggered = false;
@@ -447,6 +454,15 @@ export default class GameScene extends Phaser.Scene {
     this._drawRange();
     this._drawAttackRange();
     this._updateDummyOutline();
+  }
+
+  _resurrectDummy() {
+    this.dummy.hp    = this.dummy.maxHp;
+    this.dummy.alive = true;
+    this.dummyRect.setFillStyle(0xf5a623).setStrokeStyle(0).setDepth(3);
+    this.dummyRect.body.setEnable(true);
+    this._updateDummyHp();
+    this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 40, 'RESURRECT!', '#ff88ff');
   }
 
   _drawPlayerHp() {
@@ -525,7 +541,8 @@ export default class GameScene extends Phaser.Scene {
     this.dummy.hp = Math.max(0, this.dummy.hp - damage);
     this._updateDummyHp();
     if (this.dummy.hp <= 0) {
-      this.dummy.alive = false;
+      this.dummy.alive         = false;
+      this.dummy.defeatedAtTurn = this.turnCount;
       this.dummyRect.setFillStyle(0x555555).setStrokeStyle(0).setDepth(2);
       this.dummyRect.body.setEnable(false);
       this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 54, 'Defeated!', '#ffffff');
