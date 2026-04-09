@@ -420,13 +420,10 @@ export default class GameScene extends Phaser.Scene {
 
   // In a corridor: reveal the tile, cast rays in 4 directions,
   // reveal corridor tiles + 1 tile to each side.
-  // When hitting a room, reveal only the slice of the room the player is aligned with
-  // (±1 tile on the perpendicular axis, full depth of the room on the ray axis).
+  // When hitting a room, reveal the slice aligned with the corridor axis
+  // (±1 tile either side of the corridor column/row, full depth of the room).
   _revealCorridor(pr, pc) {
     this.fogGrid[pr][pc] = true;
-    // Always use actual player tile for alignment, even when called from a room border
-    const plR = Math.floor(this.player.y / TILE);
-    const plC = Math.floor(this.player.x / TILE);
 
     for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
       let r = pr + dr, c = pc + dc;
@@ -439,15 +436,16 @@ export default class GameScene extends Phaser.Scene {
             this.fogGrid[sr][sc] = true;
         }
 
-        // Hit a room: reveal the aligned slice (full room depth, ±1 tile wide)
+        // Hit a room: reveal the slice aligned with the corridor
+        // Vertical ray (dr!=0): corridor column is c (dc==0 so c is constant) → filter by column
+        // Horizontal ray (dc!=0): corridor row is r (dr==0 so r is constant) → filter by row
         if (this.roomGrid[r][c] >= 0) {
           const hitRoom = this.rooms[this.roomGrid[r][c]];
           for (let rr = hitRoom.y - 1; rr <= hitRoom.y + hitRoom.h; rr++) {
             for (let rc = hitRoom.x - 1; rc <= hitRoom.x + hitRoom.w; rc++) {
               if (rr < 0 || rr >= MAP_ROWS || rc < 0 || rc >= MAP_COLS) continue;
-              // Vertical corridor → filter by column; horizontal → filter by row
-              const inSlice = dr !== 0 ? Math.abs(rc - plC) <= 1
-                                       : Math.abs(rr - plR) <= 1;
+              const inSlice = dr !== 0 ? Math.abs(rc - c) <= 1
+                                       : Math.abs(rr - r) <= 1;
               if (inSlice) this.fogGrid[rr][rc] = true;
             }
           }
