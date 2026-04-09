@@ -363,17 +363,22 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Reveal all tiles in the room + surrounding wall border + full corridor reveals
+  // Reveal all tiles in the room + surrounding wall border.
+  // Corridors adjacent to the room are always visible at their entry tile (covered by
+  // the wall border). A full corridor reveal only fires when the player is aligned
+  // with the corridor axis — i.e. within 1 tile perpendicular to the corridor direction.
   _revealRoom(roomIdx) {
     const room = this.rooms[roomIdx];
+    const pr = Math.floor(this.player.y / TILE);
+    const pc = Math.floor(this.player.x / TILE);
 
-    // Room floor tiles + the 1-tile wall border surrounding the room
+    // Room floor tiles + the 1-tile wall/entry border surrounding the room
     for (let r = room.y - 1; r <= room.y + room.h; r++)
       for (let c = room.x - 1; c <= room.x + room.w; c++)
         if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS)
           this.fogGrid[r][c] = true;
 
-    // Full corridor reveal from every corridor entry adjacent to the room border
+    // Full corridor reveal only when player is lined up with the corridor
     const visited = new Set();
     for (let r = room.y; r < room.y + room.h; r++) {
       for (let c = room.x; c < room.x + room.w; c++) {
@@ -387,7 +392,11 @@ export default class GameScene extends Phaser.Scene {
               && this.mapGrid[nr][nc] === 0 && this.roomGrid[nr][nc] < 0
               && !visited.has(key)) {
             visited.add(key);
-            this._revealCorridor(nr, nc);
+            // Vertical corridor (dr!=0): player column must be within 1 of corridor column
+            // Horizontal corridor (dc!=0): player row must be within 1 of corridor row
+            const aligned = dr !== 0 ? Math.abs(pc - nc) <= 1
+                                     : Math.abs(pr - nr) <= 1;
+            if (aligned) this._revealCorridor(nr, nc);
           }
         }
       }
