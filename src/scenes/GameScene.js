@@ -8,11 +8,15 @@ const MAX_DISTANCE = 160;
 const SPEED = 160;
 
 // Combat
-const ATTACK_RANGE  = 80;           // max edge-to-edge distance to attack
-const ATTACK_COST   = 50;           // distLeft consumed per attack
-const BASE_DAMAGE   = 10;
-const DUMMY_HP      = 50;
-const PLAYER_HALF   = (TILE - 4) / 2;  // half-size of the player body
+const DUMMY_HP    = 50;
+const PLAYER_HALF = (TILE - 4) / 2;  // half-size of the player body
+
+// Weapons
+const WEAPONS = [
+  { name: 'Dagger', range: 40,  damage: 15, cost: 30 },
+  { name: 'Sword',  range: 80,  damage: 10, cost: 50 },
+  { name: 'Spear',  range: 130, damage: 7,  cost: 40 },
+];
 
 // Map layout: 1 = wall, 0 = floor
 // 20 columns x 25 rows
@@ -61,7 +65,7 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     // --- Draw map ---
-    // Depth order: floor (0) → range circle (1) → walls (2) → entities (3) → HP/labels (4) → UI (10)
+    // Depth order: floor (0) → range circles (1) → walls (2) → entities (3) → HP/labels (4) → UI (10) → inventory (25)
     this.wallGroup = this.physics.add.staticGroup();
     const floorGfx = this.add.graphics().setDepth(0);
     const wallGfx  = this.add.graphics().setDepth(2);
@@ -101,7 +105,6 @@ export default class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     // --- Training dummy ---
-    // Placed at col 13, row 12 — 96px from player start, just outside attack range
     this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2 };
     this.dummyRect = this.add.rectangle(
       13 * TILE + TILE / 2,
@@ -111,7 +114,6 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.existing(this.dummyRect, true);
     this.physics.add.collider(this.player, this.dummyRect);
 
-    // Tap enemy to attack — flag prevents joystick activating on same touch
     this.justAttacked = false;
     this.dummyRect.on('pointerdown', () => {
       this.justAttacked = true;
@@ -131,12 +133,16 @@ export default class GameScene extends Phaser.Scene {
     this.effectiveMax  = MAX_DISTANCE;
     this.savedMovement = 0;
     this.turnEnding    = false;
-    this.lastX = this.player.x;
-    this.lastY = this.player.y;
+    this.lastX         = this.player.x;
+    this.lastY         = this.player.y;
+
+    // --- Equipped weapon (default: Sword) ---
+    this.equippedWeapon = WEAPONS[1];
+    this.inventoryOpen  = false;
 
     // --- Range indicators ---
-    this.rangeGfx      = this.add.graphics().setDepth(1);
-    this.atkRangeGfx   = this.add.graphics().setDepth(1);
+    this.rangeGfx    = this.add.graphics().setDepth(1);
+    this.atkRangeGfx = this.add.graphics().setDepth(1);
     this._drawRange();
     this._drawAttackRange();
 
@@ -146,18 +152,20 @@ export default class GameScene extends Phaser.Scene {
 
     // --- UI: move counter ---
     this.movesText = this.add.text(240, 20, this._distLabel(), {
-      fontSize: '18px',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 3,
+      fontSize: '18px', color: '#ffffff',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
+
+    // --- UI: equipped weapon label ---
+    this.weaponText = this.add.text(240, 46, this._weaponLabel(), {
+      fontSize: '13px', color: '#ffdd00',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
 
     // --- UI: end of turn message ---
     this.turnMsg = this.add.text(240, 400, 'End of Turn!', {
-      fontSize: '28px',
-      color: '#f5a623',
-      stroke: '#000000',
-      strokeThickness: 4,
+      fontSize: '28px', color: '#f5a623',
+      stroke: '#000000', strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(10).setVisible(false);
 
     // --- End Turn button (bottom-right) ---
@@ -167,7 +175,21 @@ export default class GameScene extends Phaser.Scene {
       fontSize: '13px', color: '#ffffff', stroke: '#000000',
       strokeThickness: 2, align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
-    this.endTurnBtn.on('pointerdown', () => this._endTurnManual());
+    this.endTurnBtn.on('pointerdown', () => {
+      this.justAttacked = true;
+      this._endTurnManual();
+    });
+
+    // --- Bag button (bottom-center) ---
+    this.bagBtn = this.add.circle(240, 720, 44, 0x446644)
+      .setScrollFactor(0).setDepth(10).setInteractive();
+    this.add.text(240, 720, 'BAG', {
+      fontSize: '16px', color: '#ffffff', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    this.bagBtn.on('pointerdown', () => {
+      this.justAttacked = true;
+      this.inventoryOpen ? this._closeInventory() : this._openInventory();
+    });
 
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -185,7 +207,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (ptr) => {
       if (this.justAttacked) { this.justAttacked = false; return; }
-      if (ptr.x < 240 && !this.joy.active) {
+      if (ptr.x < 240 && !this.joy.active && !this.inventoryOpen) {
         this.joy.active = true;
         this.joy.pointerId = ptr.id;
         this.joy.baseX = ptr.x;
@@ -219,6 +241,9 @@ export default class GameScene extends Phaser.Scene {
         this._drawJoystick(JOY_MARGIN, 800 - JOY_MARGIN, 0, 0, false);
       }
     });
+
+    // --- Build inventory panel (hidden) ---
+    this._buildInventoryPanel();
   }
 
   // ---------------------------------------------------------------
@@ -226,6 +251,13 @@ export default class GameScene extends Phaser.Scene {
   _distLabel() {
     return `Move: ${Math.ceil(this.distLeft)} / ${this.effectiveMax}`;
   }
+
+  _weaponLabel() {
+    const w = this.equippedWeapon;
+    return `${w.name}  Dmg:${w.damage}  Rng:${w.range}  Cost:${w.cost}`;
+  }
+
+  // ---------------------------------------------------------------
 
   _endTurnManual() {
     if (this.turnEnding) return;
@@ -240,16 +272,15 @@ export default class GameScene extends Phaser.Scene {
     this.turnEnding = true;
     this.player.body.setVelocity(0, 0);
     this._drawRange();
-
     this.turnMsg.setVisible(true);
     this.time.delayedCall(1000, () => {
       this.turnMsg.setVisible(false);
-      const bonus       = this.savedMovement;
+      const bonus        = this.savedMovement;
       this.savedMovement = 0;
       this.effectiveMax  = MAX_DISTANCE + bonus;
       this.distLeft      = this.effectiveMax;
       this.turnEnding    = false;
-      this.turnMsg.setText('End of Turn!'); // reset for natural end
+      this.turnMsg.setText('End of Turn!');
       this.movesText.setText(this._distLabel());
       this._drawRange();
     });
@@ -258,56 +289,151 @@ export default class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------
 
   _canAttack() {
-    if (!this.dummy.alive || this.turnEnding || this.distLeft < ATTACK_COST) return false;
+    if (!this.dummy.alive || this.turnEnding || this.inventoryOpen) return false;
+    if (this.distLeft < this.equippedWeapon.cost) return false;
     const centerDist = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y
     );
-    return centerDist - PLAYER_HALF - this.dummy.halfSize <= ATTACK_RANGE;
+    return centerDist - PLAYER_HALF - this.dummy.halfSize <= this.equippedWeapon.range;
   }
 
   _tryAttack() {
     if (!this._canAttack()) return;
 
-    // Consume movement cost
-    this.distLeft = Math.max(0, this.distLeft - ATTACK_COST);
+    const weapon = this.equippedWeapon;
+
+    this.distLeft = Math.max(0, this.distLeft - weapon.cost);
     this.movesText.setText(this._distLabel());
     this._drawRange();
 
     // Roll d20
     const roll = Phaser.Math.Between(1, 20);
-    let damage = BASE_DAMAGE;
+    let damage   = weapon.damage;
     let dmgLabel = `-${damage}`;
     let dmgColor = '#ff4444';
 
     if (roll === 20) {
-      damage  = BASE_DAMAGE * 2;
+      damage   = weapon.damage * 2;
       dmgLabel = `CRIT! -${damage}`;
       dmgColor = '#ffdd00';
     } else if (roll === 1) {
-      damage  = Math.floor(BASE_DAMAGE / 2);
+      damage   = Math.floor(weapon.damage / 2);
       dmgLabel = `WEAK -${damage}`;
       dmgColor = '#aaaaaa';
     }
 
-    // Show roll above, damage below
     this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 28, `Roll: ${roll}`, '#ffffff');
-    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8,  dmgLabel, dmgColor);
+    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8, dmgLabel, dmgColor);
 
-    // Apply damage
     this.dummy.hp = Math.max(0, this.dummy.hp - damage);
     this._updateDummyHp();
 
     if (this.dummy.hp <= 0) {
       this.dummy.alive = false;
       this.dummyRect.setFillStyle(0x555555).setStrokeStyle(0).setDepth(2);
-      this.dummyRect.body.enable = false; // allow walking through corpse
+      this.dummyRect.body.enable = false;
       this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 54, 'Defeated!', '#ffffff');
-      this._drawAttackRange(); // clear ring once enemy is dead
+      this._drawAttackRange();
     }
-
 
     if (this.distLeft <= 0) this._endTurn();
   }
+
+  // ---------------------------------------------------------------
+
+  _buildInventoryPanel() {
+    const cx = 240, cy = 430;
+    const panelW = 380, panelH = 360;
+
+    // Darkened overlay — blocks touches behind the panel
+    const overlay = this.add.rectangle(240, 400, 480, 800, 0x000000, 0.65)
+      .setInteractive();
+
+    // Panel background
+    const bg = this.add.rectangle(cx, cy, panelW, panelH, 0x1a1a2e)
+      .setStrokeStyle(2, 0x4fc3f7);
+
+    // Title
+    const title = this.add.text(cx, cy - panelH / 2 + 26, 'INVENTORY', {
+      fontSize: '20px', color: '#4fc3f7',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5);
+
+    const allElements = [overlay, bg, title];
+    this.invRows = []; // { rowBg, nameText, weapon }
+
+    WEAPONS.forEach((weapon, i) => {
+      const rowY = cy - panelH / 2 + 90 + i * 76;
+
+      const rowBg = this.add.rectangle(cx, rowY, panelW - 24, 64, 0x2a2a4a)
+        .setStrokeStyle(1, 0x444466)
+        .setInteractive();
+
+      rowBg.on('pointerdown', () => {
+        this.justAttacked = true;
+        this._equipWeapon(weapon);
+        this._closeInventory();
+      });
+
+      const nameText = this.add.text(cx - panelW / 2 + 24, rowY, weapon.name, {
+        fontSize: '17px', color: '#ffffff',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0, 0.5);
+
+      const statsText = this.add.text(cx + panelW / 2 - 20, rowY,
+        `Rng:${weapon.range}   Dmg:${weapon.damage}   Cost:${weapon.cost}`, {
+          fontSize: '12px', color: '#aaaacc',
+        }).setOrigin(1, 0.5);
+
+      allElements.push(rowBg, nameText, statsText);
+      this.invRows.push({ rowBg, nameText, weapon });
+    });
+
+    // Close button
+    const closeBtn = this.add.text(cx, cy + panelH / 2 - 26, '[ CLOSE ]', {
+      fontSize: '16px', color: '#ff6666',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setInteractive();
+
+    closeBtn.on('pointerdown', () => {
+      this.justAttacked = true;
+      this._closeInventory();
+    });
+
+    allElements.push(closeBtn);
+
+    this.inventoryContainer = this.add.container(0, 0, allElements)
+      .setScrollFactor(0).setDepth(25).setVisible(false);
+  }
+
+  _openInventory() {
+    this._refreshInvHighlights();
+    this.inventoryContainer.setVisible(true);
+    this.inventoryOpen = true;
+  }
+
+  _closeInventory() {
+    this.inventoryContainer.setVisible(false);
+    this.inventoryOpen = false;
+  }
+
+  _equipWeapon(weapon) {
+    this.equippedWeapon = weapon;
+    this.weaponText.setText(this._weaponLabel());
+    this._drawAttackRange();
+    this._updateDummyOutline();
+  }
+
+  _refreshInvHighlights() {
+    this.invRows.forEach(({ rowBg, nameText, weapon }) => {
+      const equipped = weapon === this.equippedWeapon;
+      rowBg.setFillStyle(equipped ? 0x334488 : 0x2a2a4a);
+      rowBg.setStrokeStyle(equipped ? 2 : 1, equipped ? 0x4fc3f7 : 0x444466);
+      nameText.setColor(equipped ? '#ffdd00' : '#ffffff');
+    });
+  }
+
+  // ---------------------------------------------------------------
 
   _updateDummyHp() {
     this.dummyHpGfx.clear();
@@ -329,11 +455,7 @@ export default class GameScene extends Phaser.Scene {
 
   _updateDummyOutline() {
     if (!this.dummy.alive) return;
-    if (this._canAttack()) {
-      this.dummyRect.setStrokeStyle(2, 0xffdd00);
-    } else {
-      this.dummyRect.setStrokeStyle(0);
-    }
+    this.dummyRect.setStrokeStyle(this._canAttack() ? 2 : 0, 0xffdd00);
   }
 
   _showFloatingText(x, y, text, color = '#ffffff') {
@@ -357,6 +479,12 @@ export default class GameScene extends Phaser.Scene {
   update(_time, delta) {
     const body = this.player.body;
 
+    // Block movement while inventory is open
+    if (this.inventoryOpen) {
+      body.setVelocity(0, 0);
+      return;
+    }
+
     // Track actual distance traveled
     if (!this.turnEnding) {
       const dx = this.player.x - this.lastX;
@@ -368,10 +496,7 @@ export default class GameScene extends Phaser.Scene {
         this._drawRange();
         this._drawAttackRange();
         this._updateDummyOutline();
-
-        if (this.distLeft <= 0) {
-          this._endTurn();
-        }
+        if (this.distLeft <= 0) this._endTurn();
       }
     }
     this.lastX = this.player.x;
@@ -425,7 +550,10 @@ export default class GameScene extends Phaser.Scene {
     if (!this.dummy.alive) return;
 
     this.atkRangeGfx.lineStyle(1.5, 0xff4444, 0.5);
-    this.atkRangeGfx.strokeCircle(this.player.x, this.player.y, ATTACK_RANGE + PLAYER_HALF);
+    this.atkRangeGfx.strokeCircle(
+      this.player.x, this.player.y,
+      this.equippedWeapon.range + PLAYER_HALF
+    );
   }
 
   // ---------------------------------------------------------------
