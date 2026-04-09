@@ -22,8 +22,7 @@ const WEAPONS = [
 const PLAYER_HP = 100;
 
 // Enemy AI
-const ENEMY_MOVE   = 100;
-const ENEMY_WEAPON = { range: 35, damage: 6, cost: 25 };
+const ENEMY_MOVE = 100;
 
 // Map layout: 1 = wall, 0 = floor
 // 20 columns x 25 rows
@@ -112,7 +111,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
     // --- Training dummy ---
-    this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2 };
+    this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2, weapon: WEAPONS[1] };
     this.dummyRect = this.add.rectangle(
       13 * TILE + TILE / 2,
       12 * TILE + TILE / 2,
@@ -130,7 +129,8 @@ export default class GameScene extends Phaser.Scene {
 
     this.dummyLabel = this.add.text(
       this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4,
-      'DUMMY', { fontSize: '9px', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }
+      `DUMMY [${this.dummy.weapon.name}]`,
+      { fontSize: '9px', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }
     ).setOrigin(0.5, 1).setDepth(4);
 
     this.dummyHpGfx = this.add.graphics().setDepth(4);
@@ -309,6 +309,24 @@ export default class GameScene extends Phaser.Scene {
     return { roll, damage, label, color };
   }
 
+  // Roll using the enemy's weapon (respects its abilities e.g. crit_range)
+  _rollEnemyAttack() {
+    const weapon = this.dummy.weapon;
+    const crit   = weapon.abilities?.find(a => a.type === 'crit_range');
+    const critAt = crit ? 21 - crit.value : 20;
+    const roll   = Phaser.Math.Between(1, 20);
+    let damage   = weapon.damage;
+    let label    = `-${damage}`;
+    let color    = '#ff4444';
+
+    if (roll >= critAt) {
+      damage = weapon.damage * 2; label = `CRIT! -${damage}`; color = '#ffdd00';
+    } else if (roll === 1) {
+      damage = Math.floor(weapon.damage / 2); label = `WEAK -${damage}`; color = '#aaaaaa';
+    }
+    return { roll, damage, label, color };
+  }
+
   // Pure range check — no turn/cost guards
   _playerInAttackRange() {
     const d = Phaser.Math.Distance.Between(
@@ -386,22 +404,15 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _enemyAttackPhase() {
-    const centerDist = Phaser.Math.Distance.Between(
+    const enemyWeapon = this.dummy.weapon;
+    const centerDist  = Phaser.Math.Distance.Between(
       this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y
     );
-    if (centerDist - this.dummy.halfSize - PLAYER_HALF <= ENEMY_WEAPON.range) {
-      const roll = Phaser.Math.Between(1, 20);
-      let damage = ENEMY_WEAPON.damage;
-      let label  = `-${damage}`;
-      let color  = '#ff4444';
+    if (centerDist - this.dummy.halfSize - PLAYER_HALF <= enemyWeapon.range) {
+      const { roll, damage: rawDamage, label, color } = this._rollEnemyAttack();
 
-      if (roll === 20) {
-        damage = damage * 2; label = `CRIT! -${damage}`; color = '#ffdd00';
-      } else if (roll === 1) {
-        damage = Math.floor(damage / 2); label = `WEAK -${damage}`; color = '#aaaaaa';
-      }
-
-      // Apply block ability
+      // Apply player's block ability
+      let damage = rawDamage;
       const block = this._getAbility('block');
       if (block && block.value > 0) {
         const absorbed = Math.min(damage, block.value);
@@ -501,7 +512,16 @@ export default class GameScene extends Phaser.Scene {
     this._applyDamageToDummy(damage);
   }
 
-  _applyDamageToDummy(damage) {
+  _applyDamageToDummy(rawDamage) {
+    // Apply dummy's block ability
+    let damage = rawDamage;
+    const block = this.dummy.weapon?.abilities?.find(a => a.type === 'block');
+    if (block && block.value > 0) {
+      const absorbed = Math.min(damage, block.value);
+      damage -= absorbed;
+      this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 48, `BLOCK ${absorbed}`, '#4fc3f7');
+    }
+
     this.dummy.hp = Math.max(0, this.dummy.hp - damage);
     this._updateDummyHp();
     if (this.dummy.hp <= 0) {
