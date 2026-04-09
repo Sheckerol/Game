@@ -454,6 +454,9 @@ export default class GameScene extends Phaser.Scene {
         r += dr;
         c += dc;
       }
+      // Reveal the wall tile that stopped the ray (so corridor end walls are visible)
+      if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 1)
+        this.fogGrid[r][c] = true;
     }
   }
 
