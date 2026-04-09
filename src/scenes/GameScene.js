@@ -18,6 +18,13 @@ const WEAPONS = [
   { name: 'Spear',  range: 130, damage: 7,  cost: 40 },
 ];
 
+// Player
+const PLAYER_HP = 100;
+
+// Enemy AI
+const ENEMY_MOVE   = 100;
+const ENEMY_WEAPON = { range: 35, damage: 6, cost: 25 };
+
 // Map layout: 1 = wall, 0 = floor
 // 20 columns x 25 rows
 const MAP = [
@@ -111,7 +118,8 @@ export default class GameScene extends Phaser.Scene {
       12 * TILE + TILE / 2,
       TILE - 4, TILE - 4, 0xf5a623
     ).setDepth(3).setInteractive();
-    this.physics.add.existing(this.dummyRect, true);
+    this.physics.add.existing(this.dummyRect);
+    this.dummyRect.body.setImmovable(true);
     this.physics.add.collider(this.player, this.dummyRect);
 
     this.justAttacked = false;
@@ -120,7 +128,7 @@ export default class GameScene extends Phaser.Scene {
       this._tryAttack();
     });
 
-    this.add.text(
+    this.dummyLabel = this.add.text(
       this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4,
       'DUMMY', { fontSize: '9px', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }
     ).setOrigin(0.5, 1).setDepth(4);
@@ -135,6 +143,10 @@ export default class GameScene extends Phaser.Scene {
     this.turnEnding    = false;
     this.lastX         = this.player.x;
     this.lastY         = this.player.y;
+
+    // --- Player HP ---
+    this.playerHp    = PLAYER_HP;
+    this.playerMaxHp = PLAYER_HP;
 
     // --- Equipped weapon (default: Sword) ---
     this.equippedWeapon = WEAPONS[1];
@@ -161,6 +173,13 @@ export default class GameScene extends Phaser.Scene {
       fontSize: '13px', color: '#ffdd00',
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
+
+    // --- UI: player HP bar ---
+    this.add.text(50, 72, 'HP', {
+      fontSize: '12px', color: '#aaffaa', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(10);
+    this.playerHpGfx = this.add.graphics().setScrollFactor(0).setDepth(10);
+    this._drawPlayerHp();
 
     // --- UI: end of turn message ---
     this.turnMsg = this.add.text(240, 400, 'End of Turn!', {
@@ -273,17 +292,122 @@ export default class GameScene extends Phaser.Scene {
     this.player.body.setVelocity(0, 0);
     this._drawRange();
     this.turnMsg.setVisible(true);
-    this.time.delayedCall(1000, () => {
+    this.time.delayedCall(800, () => {
       this.turnMsg.setVisible(false);
-      const bonus        = this.savedMovement;
-      this.savedMovement = 0;
-      this.effectiveMax  = MAX_DISTANCE + bonus;
-      this.distLeft      = this.effectiveMax;
-      this.turnEnding    = false;
-      this.turnMsg.setText('End of Turn!');
-      this.movesText.setText(this._distLabel());
-      this._drawRange();
+      this._startEnemyTurn();
     });
+  }
+
+  _startEnemyTurn() {
+    if (!this.dummy.alive) { this._startPlayerTurn(); return; }
+
+    const dx   = this.player.x - this.dummyRect.x;
+    const dy   = this.player.y - this.dummyRect.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Move up to ENEMY_MOVE px, stopping before overlapping the player
+    const gap     = dist - this.dummy.halfSize - PLAYER_HALF - 2;
+    const moveAmt = Math.min(ENEMY_MOVE, Math.max(0, gap));
+
+    if (moveAmt > 1) {
+      const tx = this.dummyRect.x + (dx / dist) * moveAmt;
+      const ty = this.dummyRect.y + (dy / dist) * moveAmt;
+
+      this.tweens.add({
+        targets: this.dummyRect,
+        x: tx, y: ty,
+        duration: 400,
+        ease: 'Power1',
+        onUpdate: () => {
+          this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);
+          this._updateDummyHp();
+          this._drawAttackRange();
+        },
+        onComplete: () => {
+          this.dummyRect.body.reset(this.dummyRect.x, this.dummyRect.y);
+          this._enemyAttackPhase();
+        },
+      });
+    } else {
+      this._enemyAttackPhase();
+    }
+  }
+
+  _enemyAttackPhase() {
+    const centerDist = Phaser.Math.Distance.Between(
+      this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y
+    );
+    const edgeDist = centerDist - this.dummy.halfSize - PLAYER_HALF;
+
+    if (edgeDist <= ENEMY_WEAPON.range) {
+      const roll = Phaser.Math.Between(1, 20);
+      let damage = ENEMY_WEAPON.damage;
+      let label  = `-${damage}`;
+      let color  = '#ff4444';
+
+      if (roll === 20) {
+        damage = damage * 2; label = `CRIT! -${damage}`; color = '#ffdd00';
+      } else if (roll === 1) {
+        damage = Math.floor(damage / 2); label = `WEAK -${damage}`; color = '#aaaaaa';
+      }
+
+      this._showFloatingText(this.player.x, this.player.y - 28, `Enemy: ${roll}`, '#ffaaaa');
+      this._showFloatingText(this.player.x, this.player.y + 8, label, color);
+
+      this.playerHp = Math.max(0, this.playerHp - damage);
+      this._drawPlayerHp();
+
+      if (this.playerHp <= 0) {
+        this.time.delayedCall(1000, () => this._gameOver());
+        return;
+      }
+    }
+
+    this.time.delayedCall(500, () => this._startPlayerTurn());
+  }
+
+  _startPlayerTurn() {
+    const bonus        = this.savedMovement;
+    this.savedMovement = 0;
+    this.effectiveMax  = MAX_DISTANCE + bonus;
+    this.distLeft      = this.effectiveMax;
+    this.turnEnding    = false;
+    this.turnMsg.setText('End of Turn!');
+    this.movesText.setText(this._distLabel());
+    this._drawRange();
+    this._drawAttackRange();
+    this._updateDummyOutline();
+  }
+
+  _drawPlayerHp() {
+    this.playerHpGfx.clear();
+    const barW = 160, barH = 10;
+    const bx = 68, by = 67;
+
+    this.playerHpGfx.fillStyle(0x333333, 1);
+    this.playerHpGfx.fillRect(bx, by, barW, barH);
+
+    const pct   = this.playerHp / this.playerMaxHp;
+    const color = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
+    this.playerHpGfx.fillStyle(color, 1);
+    this.playerHpGfx.fillRect(bx, by, barW * pct, barH);
+
+    this.playerHpGfx.lineStyle(1, 0x888888, 0.8);
+    this.playerHpGfx.strokeRect(bx, by, barW, barH);
+  }
+
+  _gameOver() {
+    this.turnEnding = true;
+    this.add.rectangle(240, 400, 480, 800, 0x000000, 0.7)
+      .setScrollFactor(0).setDepth(40);
+    this.add.text(240, 380, 'GAME OVER', {
+      fontSize: '44px', color: '#ff2222',
+      stroke: '#000000', strokeThickness: 6,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(41);
+    this.add.text(240, 440, 'Refresh to restart', {
+      fontSize: '18px', color: '#aaaaaa',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(41);
   }
 
   // ---------------------------------------------------------------
@@ -331,7 +455,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.dummy.hp <= 0) {
       this.dummy.alive = false;
       this.dummyRect.setFillStyle(0x555555).setStrokeStyle(0).setDepth(2);
-      this.dummyRect.body.enable = false;
+      this.dummyRect.body.setEnable(false);
       this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 54, 'Defeated!', '#ffffff');
       this._drawAttackRange();
     }
@@ -556,6 +680,8 @@ export default class GameScene extends Phaser.Scene {
     const color = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
     this.dummyHpGfx.fillStyle(color, 1);
     this.dummyHpGfx.fillRect(bx, by, barW * pct, barH);
+
+    this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);
   }
 
   _updateDummyOutline() {
