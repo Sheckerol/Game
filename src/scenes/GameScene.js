@@ -97,7 +97,11 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // --- Player ---
+    // Pre-build wall rect list for line-of-sight checks
+    this.wallRects = this.wallGroup.getChildren().map(w =>
+      new Phaser.Geom.Rectangle(w.x - TILE / 2, w.y - TILE / 2, TILE, TILE)
+    );
+    this._losLine = new Phaser.Geom.Line();
     const startCol = Math.floor(MAP_COLS / 2);
     const startRow = Math.floor(MAP_ROWS / 2);
     this.player = this.add.rectangle(
@@ -330,12 +334,20 @@ export default class GameScene extends Phaser.Scene {
     return { roll, damage, label, color };
   }
 
-  // Pure range check — no turn/cost guards
+  // Pure range + line-of-sight check — no turn/cost guards
   _playerInAttackRange() {
     const d = Phaser.Math.Distance.Between(
       this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y
     );
-    return d - PLAYER_HALF - this.dummy.halfSize <= this.equippedWeapon.range;
+    if (d - PLAYER_HALF - this.dummy.halfSize > this.equippedWeapon.range) return false;
+    return this._hasLineOfSight(this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y);
+  }
+
+  _hasLineOfSight(x1, y1, x2, y2) {
+    this._losLine.setTo(x1, y1, x2, y2);
+    return !this.wallRects.some(r =>
+      Phaser.Geom.Intersects.LineToRectangle(this._losLine, r)
+    );
   }
 
   // ---------------------------------------------------------------
@@ -405,7 +417,8 @@ export default class GameScene extends Phaser.Scene {
     const centerDist  = Phaser.Math.Distance.Between(
       this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y
     );
-    if (centerDist - this.dummy.halfSize - PLAYER_HALF <= enemyWeapon.range) {
+    if (centerDist - this.dummy.halfSize - PLAYER_HALF <= enemyWeapon.range &&
+        this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y)) {
       const { roll, damage: rawDamage, label, color } = this._rollEnemyAttack();
 
       // Apply player's block ability
