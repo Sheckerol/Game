@@ -24,38 +24,9 @@ const PLAYER_HP = 100;
 // Enemy AI
 const ENEMY_MOVE = 100;
 
-// Map layout: 1 = wall, 0 = floor
-// 20 columns x 25 rows
-const MAP = [
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1],
-  [1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,1],
-  [1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1],
-  [1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-];
-
-const MAP_COLS = MAP[0].length;
-const MAP_ROWS = MAP.length;
+// Map dimensions
+const MAP_COLS = 20;
+const MAP_ROWS = 25;
 const WORLD_W  = MAP_COLS * TILE;
 const WORLD_H  = MAP_ROWS * TILE;
 
@@ -70,8 +41,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // --- Draw map ---
+    // --- Generate map ---
     // Depth order: floor (0) → range circles (1) → walls (2) → entities (3) → HP/labels (4) → UI (10) → inventory (25)
+    const { grid, playerStart, enemyStart } = this._generateMap();
+
     this.wallGroup = this.physics.add.staticGroup();
     const floorGfx = this.add.graphics().setDepth(0);
     const wallGfx  = this.add.graphics().setDepth(2);
@@ -80,7 +53,7 @@ export default class GameScene extends Phaser.Scene {
       for (let col = 0; col < MAP_COLS; col++) {
         const x = col * TILE;
         const y = row * TILE;
-        if (MAP[row][col] === 1) {
+        if (grid[row][col] === 1) {
           wallGfx.fillStyle(0x3d405b, 1);
           wallGfx.fillRect(x, y, TILE, TILE);
           wallGfx.lineStyle(1, 0x2b2d42, 1);
@@ -102,11 +75,9 @@ export default class GameScene extends Phaser.Scene {
       new Phaser.Geom.Rectangle(w.x - TILE / 2, w.y - TILE / 2, TILE, TILE)
     );
     this._losLine = new Phaser.Geom.Line();
-    const startCol = Math.floor(MAP_COLS / 2);
-    const startRow = Math.floor(MAP_ROWS / 2);
     this.player = this.add.circle(
-      startCol * TILE + TILE / 2,
-      startRow * TILE + TILE / 2,
+      playerStart[1] * TILE + TILE / 2,
+      playerStart[0] * TILE + TILE / 2,
       PLAYER_HALF, 0xe94560
     ).setDepth(3);
     this.physics.add.existing(this.player);
@@ -118,8 +89,8 @@ export default class GameScene extends Phaser.Scene {
     // --- Training dummy ---
     this.dummy = { hp: DUMMY_HP, maxHp: DUMMY_HP, alive: true, halfSize: (TILE - 4) / 2, weapon: WEAPONS[1], defeatedAtTurn: -1 };
     this.dummyRect = this.add.circle(
-      13 * TILE + TILE / 2,
-      12 * TILE + TILE / 2,
+      enemyStart[1] * TILE + TILE / 2,
+      enemyStart[0] * TILE + TILE / 2,
       this.dummy.halfSize, 0xf5a623
     ).setDepth(3).setInteractive();
     this.physics.add.existing(this.dummyRect);
@@ -273,6 +244,81 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Build inventory panel (hidden) ---
     this._buildInventoryPanel();
+  }
+
+  // ---------------------------------------------------------------
+
+  _generateMap() {
+    const rows = MAP_ROWS, cols = MAP_COLS;
+    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+    let grid, openCells;
+
+    do {
+      // Random fill — border always wall, interior ~42% wall
+      grid = Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) =>
+          (r === 0 || r === rows-1 || c === 0 || c === cols-1) ? 1
+          : (Math.random() < 0.42 ? 1 : 0)
+        )
+      );
+
+      // Cellular automata smoothing (5 passes)
+      for (let pass = 0; pass < 5; pass++) {
+        const next = grid.map(row => [...row]);
+        for (let r = 1; r < rows-1; r++) {
+          for (let c = 1; c < cols-1; c++) {
+            let walls = 0;
+            for (let dr = -1; dr <= 1; dr++)
+              for (let dc = -1; dc <= 1; dc++)
+                walls += grid[r+dr][c+dc];
+            next[r][c] = walls >= 5 ? 1 : 0;
+          }
+        }
+        grid = next;
+      }
+
+      // Ensure center cell is open, then flood-fill to find connected region
+      const cr = Math.floor(rows / 2), cc = Math.floor(cols / 2);
+      grid[cr][cc] = 0;
+
+      const visited = Array.from({ length: rows }, () => new Array(cols).fill(false));
+      const queue = [[cr, cc]];
+      visited[cr][cc] = true;
+      openCells = [[cr, cc]];
+
+      while (queue.length) {
+        const [r, c] = queue.shift();
+        for (const [dr, dc] of dirs) {
+          const nr = r+dr, nc = c+dc;
+          if (nr > 0 && nr < rows-1 && nc > 0 && nc < cols-1
+              && !visited[nr][nc] && grid[nr][nc] === 0) {
+            visited[nr][nc] = true;
+            queue.push([nr, nc]);
+            openCells.push([nr, nc]);
+          }
+        }
+      }
+
+      // Fill any disconnected open cells with walls
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++)
+          if (!visited[r][c]) grid[r][c] = 1;
+
+    } while (openCells.length < 50); // retry if map is too cramped
+
+    // Player starts at center (first flood-fill cell)
+    const playerStart = openCells[0];
+
+    // Dummy starts at the farthest reachable cell from the player
+    const [pr, pc] = playerStart;
+    let enemyStart = openCells[1];
+    let maxDist = -1;
+    for (const [r, c] of openCells) {
+      const d = Math.abs(r - pr) + Math.abs(c - pc);
+      if (d > maxDist) { maxDist = d; enemyStart = [r, c]; }
+    }
+
+    return { grid, playerStart, enemyStart };
   }
 
   // ---------------------------------------------------------------
