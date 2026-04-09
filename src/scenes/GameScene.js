@@ -120,6 +120,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.existing(this.dummyRect);
     this.dummyRect.body.setImmovable(true);
     this.physics.add.collider(this.player, this.dummyRect);
+    this.physics.add.collider(this.dummyRect, this.wallGroup);
 
     this.justAttacked = false;
     this.dummyRect.on('pointerdown', () => {
@@ -142,6 +143,7 @@ export default class GameScene extends Phaser.Scene {
     this.effectiveMax   = MAX_DISTANCE;
     this.savedMovement  = 0;
     this.turnEnding     = false;
+    this.enemyMoving    = false;
     this.braceTriggered = false;
     this.lastX          = this.player.x;
     this.lastY          = this.player.y;
@@ -382,22 +384,16 @@ export default class GameScene extends Phaser.Scene {
     };
 
     if (moveAmt > 1) {
-      const tx = this.dummyRect.x + (dx / dist) * moveAmt;
-      const ty = this.dummyRect.y + (dy / dist) * moveAmt;
-      this.tweens.add({
-        targets: this.dummyRect,
-        x: tx, y: ty,
-        duration: 400,
-        ease: 'Power1',
-        onUpdate: () => {
-          this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);
-          this._updateDummyHp();
-          this._drawAttackRange();
-        },
-        onComplete: () => {
-          this.dummyRect.body.reset(this.dummyRect.x, this.dummyRect.y);
-          afterMove();
-        },
+      const ENEMY_SPEED = 150;
+      this.enemyMoving  = true;
+      this.dummyRect.body.setVelocity(
+        (dx / dist) * ENEMY_SPEED,
+        (dy / dist) * ENEMY_SPEED
+      );
+      this.time.delayedCall(Math.round(moveAmt / ENEMY_SPEED * 1000), () => {
+        this.enemyMoving = false;
+        this.dummyRect.body.setVelocity(0, 0);
+        afterMove();
       });
     } else {
       afterMove();
@@ -804,6 +800,12 @@ export default class GameScene extends Phaser.Scene {
 
   update(_time, delta) {
     const body = this.player.body;
+
+    // Keep dummy label/HP bar tracking the dummy during its movement
+    if (this.enemyMoving) {
+      this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);
+      this._updateDummyHp();
+    }
 
     // Block movement while inventory is open
     if (this.inventoryOpen) {
