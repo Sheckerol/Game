@@ -118,7 +118,7 @@ export default class GameScene extends Phaser.Scene {
       TILE - 4, TILE - 4, 0xf5a623
     ).setDepth(3).setInteractive();
     this.physics.add.existing(this.dummyRect);
-    this.dummyRect.body.setImmovable(true);
+    this.dummyRect.body.pushable = false;
     this.physics.add.collider(this.player, this.dummyRect);
     this.physics.add.collider(this.dummyRect, this.wallGroup);
 
