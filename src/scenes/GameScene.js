@@ -25,8 +25,8 @@ const PLAYER_HP = 100;
 const ENEMY_MOVE = 100;
 
 // Map dimensions
-const MAP_COLS = 20;
-const MAP_ROWS = 25;
+const MAP_COLS = 50;
+const MAP_ROWS = 70;
 const WORLD_W  = MAP_COLS * TILE;
 const WORLD_H  = MAP_ROWS * TILE;
 
@@ -250,72 +250,80 @@ export default class GameScene extends Phaser.Scene {
 
   _generateMap() {
     const rows = MAP_ROWS, cols = MAP_COLS;
-    const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
-    let grid, openCells;
+    const rng  = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-    do {
-      // Random fill — border always wall, interior ~42% wall
-      grid = Array.from({ length: rows }, (_, r) =>
-        Array.from({ length: cols }, (_, c) =>
-          (r === 0 || r === rows-1 || c === 0 || c === cols-1) ? 1
-          : (Math.random() < 0.42 ? 1 : 0)
-        )
-      );
+    // Start with all walls
+    const grid = Array.from({ length: rows }, () => new Array(cols).fill(1));
 
-      // Cellular automata smoothing (5 passes)
-      for (let pass = 0; pass < 5; pass++) {
-        const next = grid.map(row => [...row]);
-        for (let r = 1; r < rows-1; r++) {
-          for (let c = 1; c < cols-1; c++) {
-            let walls = 0;
-            for (let dr = -1; dr <= 1; dr++)
-              for (let dc = -1; dc <= 1; dc++)
-                walls += grid[r+dr][c+dc];
-            next[r][c] = walls >= 5 ? 1 : 0;
-          }
-        }
-        grid = next;
+    // Carve a 2-tile-wide horizontal run (stays inside border)
+    const carveH = (y, x1, x2) => {
+      const [xa, xb] = x1 <= x2 ? [x1, x2] : [x2, x1];
+      for (let x = xa; x <= xb; x++) {
+        if (y   >= 1 && y   < rows-1 && x >= 1 && x < cols-1) grid[y][x]   = 0;
+        if (y+1 >= 1 && y+1 < rows-1 && x >= 1 && x < cols-1) grid[y+1][x] = 0;
       }
+    };
 
-      // Ensure center cell is open, then flood-fill to find connected region
-      const cr = Math.floor(rows / 2), cc = Math.floor(cols / 2);
-      grid[cr][cc] = 0;
-
-      const visited = Array.from({ length: rows }, () => new Array(cols).fill(false));
-      const queue = [[cr, cc]];
-      visited[cr][cc] = true;
-      openCells = [[cr, cc]];
-
-      while (queue.length) {
-        const [r, c] = queue.shift();
-        for (const [dr, dc] of dirs) {
-          const nr = r+dr, nc = c+dc;
-          if (nr > 0 && nr < rows-1 && nc > 0 && nc < cols-1
-              && !visited[nr][nc] && grid[nr][nc] === 0) {
-            visited[nr][nc] = true;
-            queue.push([nr, nc]);
-            openCells.push([nr, nc]);
-          }
-        }
+    // Carve a 2-tile-wide vertical run (stays inside border)
+    const carveV = (x, y1, y2) => {
+      const [ya, yb] = y1 <= y2 ? [y1, y2] : [y2, y1];
+      for (let y = ya; y <= yb; y++) {
+        if (y >= 1 && y < rows-1 && x   >= 1 && x   < cols-1) grid[y][x]   = 0;
+        if (y >= 1 && y < rows-1 && x+1 >= 1 && x+1 < cols-1) grid[y][x+1] = 0;
       }
+    };
 
-      // Fill any disconnected open cells with walls
-      for (let r = 0; r < rows; r++)
-        for (let c = 0; c < cols; c++)
-          if (!visited[r][c]) grid[r][c] = 1;
+    // Place rooms
+    const MIN_R = 5, MAX_R = 12, ATTEMPTS = 300;
+    const rooms = [];
 
-    } while (openCells.length < 50); // retry if map is too cramped
+    for (let i = 0; i < ATTEMPTS; i++) {
+      const w = rng(MIN_R, MAX_R);
+      const h = rng(MIN_R, MAX_R);
+      const x = rng(1, cols - w - 2);
+      const y = rng(1, rows - h - 2);
 
-    // Player starts at center (first flood-fill cell)
-    const playerStart = openCells[0];
+      // Reject if overlaps any existing room (2-tile padding)
+      if (rooms.some(r =>
+        x < r.x + r.w + 2 && x + w + 2 > r.x &&
+        y < r.y + r.h + 2 && y + h + 2 > r.y
+      )) continue;
 
-    // Dummy starts at the farthest reachable cell from the player
-    const [pr, pc] = playerStart;
-    let enemyStart = openCells[1];
+      // Carve room floor
+      for (let ry = y; ry < y + h; ry++)
+        for (let rx = x; rx < x + w; rx++)
+          grid[ry][rx] = 0;
+
+      rooms.push({ x, y, w, h,
+        cx: Math.floor(x + w / 2),
+        cy: Math.floor(y + h / 2) });
+    }
+
+    // Connect each room to the nearest already-connected room (greedy MST)
+    for (let i = 1; i < rooms.length; i++) {
+      const a = rooms[i];
+      let nearest = rooms[0], minD = Infinity;
+      for (let j = 0; j < i; j++) {
+        const d = Math.abs(a.cx - rooms[j].cx) + Math.abs(a.cy - rooms[j].cy);
+        if (d < minD) { minD = d; nearest = rooms[j]; }
+      }
+      // L-shaped corridor — randomly pick which leg goes first
+      if (Math.random() < 0.5) {
+        carveH(a.cy,      a.cx, nearest.cx);
+        carveV(nearest.cx, a.cy, nearest.cy);
+      } else {
+        carveV(a.cx,      a.cy, nearest.cy);
+        carveH(nearest.cy, a.cx, nearest.cx);
+      }
+    }
+
+    // Player spawns in first room; dummy in the room farthest away
+    const playerStart = [rooms[0].cy, rooms[0].cx];
+    let enemyStart = [rooms[rooms.length - 1].cy, rooms[rooms.length - 1].cx];
     let maxDist = -1;
-    for (const [r, c] of openCells) {
-      const d = Math.abs(r - pr) + Math.abs(c - pc);
-      if (d > maxDist) { maxDist = d; enemyStart = [r, c]; }
+    for (const r of rooms) {
+      const d = Math.abs(r.cy - rooms[0].cy) + Math.abs(r.cx - rooms[0].cx);
+      if (d > maxDist) { maxDist = d; enemyStart = [r.cy, r.cx]; }
     }
 
     return { grid, playerStart, enemyStart };
