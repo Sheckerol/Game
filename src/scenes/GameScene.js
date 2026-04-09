@@ -363,14 +363,18 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Reveal all tiles in the room + 1 tile into each adjacent corridor
+  // Reveal all tiles in the room + surrounding wall border + full corridor reveals
   _revealRoom(roomIdx) {
     const room = this.rooms[roomIdx];
-    for (let r = room.y; r < room.y + room.h; r++)
-      for (let c = room.x; c < room.x + room.w; c++)
-        this.fogGrid[r][c] = true;
 
-    // Border tiles: peek 1 tile into any connecting corridor
+    // Room floor tiles + the 1-tile wall border surrounding the room
+    for (let r = room.y - 1; r <= room.y + room.h; r++)
+      for (let c = room.x - 1; c <= room.x + room.w; c++)
+        if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS)
+          this.fogGrid[r][c] = true;
+
+    // Full corridor reveal from every corridor entry adjacent to the room border
+    const visited = new Set();
     for (let r = room.y; r < room.y + room.h; r++) {
       for (let c = room.x; c < room.x + room.w; c++) {
         const onBorder = r === room.y || r === room.y + room.h - 1
@@ -378,9 +382,12 @@ export default class GameScene extends Phaser.Scene {
         if (!onBorder) continue;
         for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
           const nr = r + dr, nc = c + dc;
+          const key = `${nr},${nc}`;
           if (nr >= 0 && nr < MAP_ROWS && nc >= 0 && nc < MAP_COLS
-              && this.mapGrid[nr][nc] === 0 && this.roomGrid[nr][nc] < 0) {
-            this.fogGrid[nr][nc] = true;
+              && this.mapGrid[nr][nc] === 0 && this.roomGrid[nr][nc] < 0
+              && !visited.has(key)) {
+            visited.add(key);
+            this._revealCorridor(nr, nc);
           }
         }
       }
