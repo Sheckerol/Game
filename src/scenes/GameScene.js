@@ -372,11 +372,26 @@ export default class GameScene extends Phaser.Scene {
     const pr = Math.floor(this.player.y / TILE);
     const pc = Math.floor(this.player.x / TILE);
 
-    // Room floor tiles + the 1-tile wall/entry border surrounding the room
-    for (let r = room.y - 1; r <= room.y + room.h; r++)
-      for (let c = room.x - 1; c <= room.x + room.w; c++)
-        if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS)
-          this.fogGrid[r][c] = true;
+    // Room floor tiles
+    for (let r = room.y; r < room.y + room.h; r++)
+      for (let c = room.x; c < room.x + room.w; c++)
+        this.fogGrid[r][c] = true;
+
+    // Wall border: only tiles orthogonally adjacent to border floor tiles
+    // (no diagonal corners — you can't see around a corner)
+    for (let r = room.y; r < room.y + room.h; r++) {
+      for (let c = room.x; c < room.x + room.w; c++) {
+        const onBorder = r === room.y || r === room.y + room.h - 1
+                      || c === room.x || c === room.x + room.w - 1;
+        if (!onBorder) continue;
+        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const wr = r + dr, wc = c + dc;
+          if (wr >= 0 && wr < MAP_ROWS && wc >= 0 && wc < MAP_COLS
+              && this.roomGrid[wr][wc] < 0)
+            this.fogGrid[wr][wc] = true;
+        }
+      }
+    }
 
     // Full corridor reveal only when player is lined up with the corridor
     const visited = new Set();
