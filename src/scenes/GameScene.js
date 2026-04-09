@@ -43,7 +43,10 @@ export default class GameScene extends Phaser.Scene {
   create() {
     // --- Generate map ---
     // Depth order: floor (0) → range circles (1) → walls (2) → entities (3) → HP/labels (4) → UI (10) → inventory (25)
-    const { grid, playerStart, enemyStart } = this._generateMap();
+    const { grid, roomGrid, rooms, playerStart, enemyStart } = this._generateMap();
+    this.mapGrid  = grid;
+    this.roomGrid = roomGrid;
+    this.rooms    = rooms;
 
     this.wallGroup = this.physics.add.staticGroup();
     const floorGfx = this.add.graphics().setDepth(0);
@@ -79,7 +82,7 @@ export default class GameScene extends Phaser.Scene {
       playerStart[1] * TILE + TILE / 2,
       playerStart[0] * TILE + TILE / 2,
       PLAYER_HALF, 0xe94560
-    ).setDepth(3);
+    ).setDepth(6); // above fog (5)
     this.physics.add.existing(this.player);
     this.player.body.setCircle(PLAYER_HALF);
     this.player.body.setCollideWorldBounds(true);
@@ -242,6 +245,12 @@ export default class GameScene extends Phaser.Scene {
       }
     });
 
+    // --- Fog of war ---
+    this.fogGrid     = Array.from({ length: MAP_ROWS }, () => new Array(MAP_COLS).fill(false));
+    this.lastFogTile = { r: -1, c: -1 };
+    this.fogGfx      = this.add.graphics().setDepth(5);
+    this._updateFog();
+
     // --- Build inventory panel (hidden) ---
     this._buildInventoryPanel();
   }
@@ -252,8 +261,9 @@ export default class GameScene extends Phaser.Scene {
     const rows = MAP_ROWS, cols = MAP_COLS;
     const rng  = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-    // Start with all walls
-    const grid = Array.from({ length: rows }, () => new Array(cols).fill(1));
+    // Start with all walls; roomGrid tracks which room each floor tile belongs to (-1 = corridor/wall)
+    const grid     = Array.from({ length: rows }, () => new Array(cols).fill(1));
+    const roomGrid = Array.from({ length: rows }, () => new Array(cols).fill(-1));
 
     // Carve a 2-tile-wide horizontal run (stays inside border)
     const carveH = (y, x1, x2) => {
@@ -289,10 +299,13 @@ export default class GameScene extends Phaser.Scene {
         y < r.y + r.h + 2 && y + h + 2 > r.y
       )) continue;
 
-      // Carve room floor
+      // Carve room floor and mark roomGrid
+      const roomIdx = rooms.length;
       for (let ry = y; ry < y + h; ry++)
-        for (let rx = x; rx < x + w; rx++)
+        for (let rx = x; rx < x + w; rx++) {
           grid[ry][rx] = 0;
+          roomGrid[ry][rx] = roomIdx;
+        }
 
       rooms.push({ x, y, w, h,
         cx: Math.floor(x + w / 2),
@@ -326,7 +339,92 @@ export default class GameScene extends Phaser.Scene {
       if (d > maxDist) { maxDist = d; enemyStart = [r.cy, r.cx]; }
     }
 
-    return { grid, playerStart, enemyStart };
+    return { grid, roomGrid, rooms, playerStart, enemyStart };
+  }
+
+  // ---------------------------------------------------------------
+  // Fog of war
+
+  _updateFog() {
+    const tileR = Math.floor(this.player.y / TILE);
+    const tileC = Math.floor(this.player.x / TILE);
+    if (tileR === this.lastFogTile.r && tileC === this.lastFogTile.c) return;
+    this.lastFogTile = { r: tileR, c: tileC };
+    this._revealFromPosition(tileR, tileC);
+    this._redrawFog();
+  }
+
+  _revealFromPosition(pr, pc) {
+    const roomIdx = this.roomGrid[pr]?.[pc];
+    if (roomIdx >= 0) {
+      this._revealRoom(roomIdx);
+    } else if (this.mapGrid[pr]?.[pc] === 0) {
+      this._revealCorridor(pr, pc);
+    }
+  }
+
+  // Reveal all tiles in the room + 1 tile into each adjacent corridor
+  _revealRoom(roomIdx) {
+    const room = this.rooms[roomIdx];
+    for (let r = room.y; r < room.y + room.h; r++)
+      for (let c = room.x; c < room.x + room.w; c++)
+        this.fogGrid[r][c] = true;
+
+    // Border tiles: peek 1 tile into any connecting corridor
+    for (let r = room.y; r < room.y + room.h; r++) {
+      for (let c = room.x; c < room.x + room.w; c++) {
+        const onBorder = r === room.y || r === room.y + room.h - 1
+                      || c === room.x || c === room.x + room.w - 1;
+        if (!onBorder) continue;
+        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 0 && nr < MAP_ROWS && nc >= 0 && nc < MAP_COLS
+              && this.mapGrid[nr][nc] === 0 && this.roomGrid[nr][nc] < 0) {
+            this.fogGrid[nr][nc] = true;
+          }
+        }
+      }
+    }
+  }
+
+  // In a corridor: reveal the tile, cast rays in 4 directions,
+  // reveal corridor tiles + 1 tile to each side, peek 1 tile into rooms at the end
+  _revealCorridor(pr, pc) {
+    this.fogGrid[pr][pc] = true;
+
+    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+      let r = pr + dr, c = pc + dc;
+      while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 0) {
+        this.fogGrid[r][c] = true;
+
+        // 1 tile to each side (perpendicular)
+        for (const [sr, sc] of [[r + dc, c + dr], [r - dc, c - dr]]) {
+          if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS)
+            this.fogGrid[sr][sc] = true;
+        }
+
+        // Hit a room tile: peek 1 tile to each side inside the room, then stop
+        if (this.roomGrid[r][c] >= 0) {
+          for (const [sr, sc] of [[r + dc, c + dr], [r - dc, c - dr]]) {
+            if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS
+                && this.mapGrid[sr][sc] === 0)
+              this.fogGrid[sr][sc] = true;
+          }
+          break;
+        }
+        r += dr;
+        c += dc;
+      }
+    }
+  }
+
+  _redrawFog() {
+    this.fogGfx.clear();
+    this.fogGfx.fillStyle(0x000000, 1);
+    for (let r = 0; r < MAP_ROWS; r++)
+      for (let c = 0; c < MAP_COLS; c++)
+        if (!this.fogGrid[r][c])
+          this.fogGfx.fillRect(c * TILE, r * TILE, TILE, TILE);
   }
 
   // ---------------------------------------------------------------
@@ -869,6 +967,9 @@ export default class GameScene extends Phaser.Scene {
 
   update(_time, delta) {
     const body = this.player.body;
+
+    // Update fog whenever player tile changes
+    this._updateFog();
 
     // Keep dummy label/HP bar tracking the dummy during its movement
     if (this.enemyMoving) {
