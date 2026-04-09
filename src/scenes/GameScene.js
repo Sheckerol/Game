@@ -13,9 +13,9 @@ const PLAYER_HALF = (TILE - 4) / 2;  // half-size of the player body
 
 // Weapons
 const WEAPONS = [
-  { name: 'Dagger', range: 40,  damage: 15, cost: 30 },
-  { name: 'Sword',  range: 80,  damage: 10, cost: 50 },
-  { name: 'Spear',  range: 130, damage: 7,  cost: 40 },
+  { name: 'Dagger', range: 40,  damage: 15, cost: 30, abilities: [{ type: 'crit_range', value: 4 }] },
+  { name: 'Sword',  range: 80,  damage: 10, cost: 50, abilities: [{ type: 'block',      value: 3 }] },
+  { name: 'Spear',  range: 130, damage: 7,  cost: 40, abilities: [{ type: 'brace',      value: 1 }] },
 ];
 
 // Player
@@ -137,12 +137,13 @@ export default class GameScene extends Phaser.Scene {
     this._updateDummyHp();
 
     // --- Turn state ---
-    this.distLeft      = MAX_DISTANCE;
-    this.effectiveMax  = MAX_DISTANCE;
-    this.savedMovement = 0;
-    this.turnEnding    = false;
-    this.lastX         = this.player.x;
-    this.lastY         = this.player.y;
+    this.distLeft       = MAX_DISTANCE;
+    this.effectiveMax   = MAX_DISTANCE;
+    this.savedMovement  = 0;
+    this.turnEnding     = false;
+    this.braceTriggered = false;
+    this.lastX          = this.player.x;
+    this.lastY          = this.player.y;
 
     // --- Player HP ---
     this.playerHp    = PLAYER_HP;
@@ -272,8 +273,48 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _weaponLabel() {
-    const w = this.equippedWeapon;
-    return `${w.name}  Dmg:${w.damage}  Rng:${w.range}  Cost:${w.cost}`;
+    const w   = this.equippedWeapon;
+    const abl = this._abilityLabel(w);
+    return `${w.name}  Dmg:${w.damage}  Rng:${w.range}  Cost:${w.cost}${abl ? '  \u25c6 ' + abl : ''}`;
+  }
+
+  _abilityLabel(weapon) {
+    return (weapon.abilities ?? []).map(a => {
+      if (a.type === 'block')      return `Block ${a.value}`;
+      if (a.type === 'crit_range') return `Crit +${a.value}`;
+      if (a.type === 'brace')      return 'Brace';
+      return a.type;
+    }).join('  ');
+  }
+
+  _getAbility(type) {
+    return this.equippedWeapon.abilities?.find(a => a.type === type) ?? null;
+  }
+
+  // Returns { roll, damage, label, color } using equipped weapon + crit_range ability
+  _rollAttack() {
+    const weapon  = this.equippedWeapon;
+    const crit    = this._getAbility('crit_range');
+    const critAt  = crit ? 21 - crit.value : 20;
+    const roll    = Phaser.Math.Between(1, 20);
+    let damage    = weapon.damage;
+    let label     = `-${damage}`;
+    let color     = '#ff4444';
+
+    if (roll >= critAt) {
+      damage = weapon.damage * 2; label = `CRIT! -${damage}`; color = '#ffdd00';
+    } else if (roll === 1) {
+      damage = Math.floor(weapon.damage / 2); label = `WEAK -${damage}`; color = '#aaaaaa';
+    }
+    return { roll, damage, label, color };
+  }
+
+  // Pure range check — no turn/cost guards
+  _playerInAttackRange() {
+    const d = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y
+    );
+    return d - PLAYER_HALF - this.dummy.halfSize <= this.equippedWeapon.range;
   }
 
   // ---------------------------------------------------------------
@@ -301,18 +342,29 @@ export default class GameScene extends Phaser.Scene {
   _startEnemyTurn() {
     if (!this.dummy.alive) { this._startPlayerTurn(); return; }
 
+    const brace      = this._getAbility('brace');
+    const wasInRange = this._playerInAttackRange();
+
     const dx   = this.player.x - this.dummyRect.x;
     const dy   = this.player.y - this.dummyRect.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    // Move up to ENEMY_MOVE px, stopping before overlapping the player
     const gap     = dist - this.dummy.halfSize - PLAYER_HALF - 2;
     const moveAmt = Math.min(ENEMY_MOVE, Math.max(0, gap));
+
+    const afterMove = () => {
+      // Brace: trigger free attack if enemy just entered the player's range
+      if (brace && !this.braceTriggered && !wasInRange && this._playerInAttackRange()) {
+        this.braceTriggered = true;
+        this._doBraceAttack();
+      }
+      if (this.dummy.alive) this._enemyAttackPhase();
+      else this.time.delayedCall(400, () => this._startPlayerTurn());
+    };
 
     if (moveAmt > 1) {
       const tx = this.dummyRect.x + (dx / dist) * moveAmt;
       const ty = this.dummyRect.y + (dy / dist) * moveAmt;
-
       this.tweens.add({
         targets: this.dummyRect,
         x: tx, y: ty,
@@ -325,11 +377,11 @@ export default class GameScene extends Phaser.Scene {
         },
         onComplete: () => {
           this.dummyRect.body.reset(this.dummyRect.x, this.dummyRect.y);
-          this._enemyAttackPhase();
+          afterMove();
         },
       });
     } else {
-      this._enemyAttackPhase();
+      afterMove();
     }
   }
 
@@ -337,9 +389,7 @@ export default class GameScene extends Phaser.Scene {
     const centerDist = Phaser.Math.Distance.Between(
       this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y
     );
-    const edgeDist = centerDist - this.dummy.halfSize - PLAYER_HALF;
-
-    if (edgeDist <= ENEMY_WEAPON.range) {
+    if (centerDist - this.dummy.halfSize - PLAYER_HALF <= ENEMY_WEAPON.range) {
       const roll = Phaser.Math.Between(1, 20);
       let damage = ENEMY_WEAPON.damage;
       let label  = `-${damage}`;
@@ -349,6 +399,14 @@ export default class GameScene extends Phaser.Scene {
         damage = damage * 2; label = `CRIT! -${damage}`; color = '#ffdd00';
       } else if (roll === 1) {
         damage = Math.floor(damage / 2); label = `WEAK -${damage}`; color = '#aaaaaa';
+      }
+
+      // Apply block ability
+      const block = this._getAbility('block');
+      if (block && block.value > 0) {
+        const absorbed = Math.min(damage, block.value);
+        damage -= absorbed;
+        this._showFloatingText(this.player.x, this.player.y - 48, `BLOCK ${absorbed}`, '#4fc3f7');
       }
 
       this._showFloatingText(this.player.x, this.player.y - 28, `Enemy: ${roll}`, '#ffaaaa');
@@ -367,11 +425,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _startPlayerTurn() {
-    const bonus        = this.savedMovement;
-    this.savedMovement = 0;
-    this.effectiveMax  = MAX_DISTANCE + bonus;
-    this.distLeft      = this.effectiveMax;
-    this.turnEnding    = false;
+    const bonus         = this.savedMovement;
+    this.savedMovement  = 0;
+    this.braceTriggered = false;
+    this.effectiveMax   = MAX_DISTANCE + bonus;
+    this.distLeft       = this.effectiveMax;
+    this.turnEnding     = false;
     this.turnMsg.setText('End of Turn!');
     this.movesText.setText(this._distLabel());
     this._drawRange();
@@ -415,43 +474,36 @@ export default class GameScene extends Phaser.Scene {
   _canAttack() {
     if (!this.dummy.alive || this.turnEnding || this.inventoryOpen) return false;
     if (this.distLeft < this.equippedWeapon.cost) return false;
-    const centerDist = Phaser.Math.Distance.Between(
-      this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y
-    );
-    return centerDist - PLAYER_HALF - this.dummy.halfSize <= this.equippedWeapon.range;
+    return this._playerInAttackRange();
   }
 
   _tryAttack() {
     if (!this._canAttack()) return;
 
-    const weapon = this.equippedWeapon;
-
-    this.distLeft = Math.max(0, this.distLeft - weapon.cost);
+    this.distLeft = Math.max(0, this.distLeft - this.equippedWeapon.cost);
     this.movesText.setText(this._distLabel());
     this._drawRange();
 
-    // Roll d20
-    const roll = Phaser.Math.Between(1, 20);
-    let damage   = weapon.damage;
-    let dmgLabel = `-${damage}`;
-    let dmgColor = '#ff4444';
-
-    if (roll === 20) {
-      damage   = weapon.damage * 2;
-      dmgLabel = `CRIT! -${damage}`;
-      dmgColor = '#ffdd00';
-    } else if (roll === 1) {
-      damage   = Math.floor(weapon.damage / 2);
-      dmgLabel = `WEAK -${damage}`;
-      dmgColor = '#aaaaaa';
-    }
-
+    const { roll, damage, label, color } = this._rollAttack();
     this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 28, `Roll: ${roll}`, '#ffffff');
-    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8, dmgLabel, dmgColor);
+    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8, label, color);
+    this._applyDamageToDummy(damage);
 
+    if (this.distLeft <= 0) this._endTurn();
+  }
+
+  // Free attack triggered by Brace when enemy enters range
+  _doBraceAttack() {
+    this._showFloatingText(this.player.x, this.player.y - 52, 'BRACE!', '#88ffff');
+    const { roll, damage, label, color } = this._rollAttack();
+    this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 28, `Roll: ${roll}`, '#ffffff');
+    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8, label, color);
+    this._applyDamageToDummy(damage);
+  }
+
+  _applyDamageToDummy(damage) {
     this.dummy.hp = Math.max(0, this.dummy.hp - damage);
     this._updateDummyHp();
-
     if (this.dummy.hp <= 0) {
       this.dummy.alive = false;
       this.dummyRect.setFillStyle(0x555555).setStrokeStyle(0).setDepth(2);
@@ -459,8 +511,6 @@ export default class GameScene extends Phaser.Scene {
       this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 54, 'Defeated!', '#ffffff');
       this._drawAttackRange();
     }
-
-    if (this.distLeft <= 0) this._endTurn();
   }
 
   // ---------------------------------------------------------------
@@ -530,16 +580,21 @@ export default class GameScene extends Phaser.Scene {
         .setStrokeStyle(1, 0x4466aa).setScrollFactor(SF).setDepth(D + 1)
         .setInteractive();
 
-      const nameText = this.add.text(sx - cardW / 2 + 12, sy, weapon.name, {
-        fontSize: '16px', color: '#ffffff', stroke: '#000000', strokeThickness: 2,
+      const nameText = this.add.text(sx - cardW / 2 + 12, sy - 10, weapon.name, {
+        fontSize: '15px', color: '#ffffff', stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0, 0.5).setScrollFactor(SF).setDepth(D + 2);
 
-      const statsText = this.add.text(sx + cardW / 2 - 10, sy,
+      const statsText = this.add.text(sx + cardW / 2 - 10, sy + 10,
         `Rng:${weapon.range}  Dmg:${weapon.damage}  Cost:${weapon.cost}`, {
           fontSize: '11px', color: '#aaaacc',
         }).setOrigin(1, 0.5).setScrollFactor(SF).setDepth(D + 2);
 
-      const card = { bg: cardBg, nameText, statsText, weapon };
+      const abilityText = this.add.text(sx - cardW / 2 + 12, sy + 10,
+        this._abilityLabel(weapon), {
+          fontSize: '11px', color: '#ffdd88',
+        }).setOrigin(0, 0.5).setScrollFactor(SF).setDepth(D + 2);
+
+      const card = { bg: cardBg, nameText, statsText, abilityText, weapon };
       this.invCards.push(card);
       this.invCardsByWeapon.set(weapon, card);
 
@@ -552,7 +607,7 @@ export default class GameScene extends Phaser.Scene {
     this.invElements = [
       overlay, panelBg, title, equippedLabel, divGfx, bagLabel,
       ...this.invSlotBgs, closeBtn,
-      ...this.invCards.flatMap(c => [c.bg, c.nameText, c.statsText]),
+      ...this.invCards.flatMap(c => [c.bg, c.nameText, c.statsText, c.abilityText]),
     ];
 
     // Drag state
@@ -576,14 +631,16 @@ export default class GameScene extends Phaser.Scene {
     card.bg.setDepth(30);
     card.nameText.setDepth(31);
     card.statsText.setDepth(31);
+    card.abilityText.setDepth(31);
   }
 
   _updateCardDrag(ptr) {
     const card  = this.dragCard;
     const cardW = 340;
     card.bg.setPosition(ptr.x, ptr.y);
-    card.nameText.setPosition(ptr.x - cardW / 2 + 12, ptr.y);
-    card.statsText.setPosition(ptr.x + cardW / 2 - 10, ptr.y);
+    card.nameText.setPosition(ptr.x - cardW / 2 + 12, ptr.y - 10);
+    card.statsText.setPosition(ptr.x + cardW / 2 - 10, ptr.y + 10);
+    card.abilityText.setPosition(ptr.x - cardW / 2 + 12, ptr.y + 10);
   }
 
   _endCardDrag(ptr) {
@@ -622,8 +679,9 @@ export default class GameScene extends Phaser.Scene {
     const sx = this.invSlotX, sy = this.invSlotYs[slotIdx];
     const cardW = 340;
     card.bg.setPosition(sx, sy).setDepth(26);
-    card.nameText.setPosition(sx - cardW / 2 + 12, sy).setDepth(27);
-    card.statsText.setPosition(sx + cardW / 2 - 10, sy).setDepth(27);
+    card.nameText.setPosition(sx - cardW / 2 + 12, sy - 10).setDepth(27);
+    card.statsText.setPosition(sx + cardW / 2 - 10, sy + 10).setDepth(27);
+    card.abilityText.setPosition(sx - cardW / 2 + 12, sy + 10).setDepth(27);
   }
 
   _openInventory() {
