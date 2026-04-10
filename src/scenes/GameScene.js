@@ -285,6 +285,7 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Fog of war ---
     this.fogGrid     = Array.from({ length: MAP_ROWS }, () => new Array(MAP_COLS).fill(false));
+    this.visGrid     = Array.from({ length: MAP_ROWS }, () => new Array(MAP_COLS).fill(false));
     this.lastFogTile = { r: -1, c: -1 };
     this.fogGfx      = this.add.graphics().setDepth(5);
     this._updateFog();
@@ -388,7 +389,16 @@ export default class GameScene extends Phaser.Scene {
     const tileC = Math.floor(this.player.x / TILE);
     if (tileR === this.lastFogTile.r && tileC === this.lastFogTile.c) return;
     this.lastFogTile = { r: tileR, c: tileC };
+
+    // Reset current-visibility grid, then recalculate from player position
+    for (let r = 0; r < MAP_ROWS; r++) this.visGrid[r].fill(false);
     this._revealFromPosition(tileR, tileC);
+
+    // Merge into persistent fog (tiles stay revealed once seen)
+    for (let r = 0; r < MAP_ROWS; r++)
+      for (let c = 0; c < MAP_COLS; c++)
+        if (this.visGrid[r][c]) this.fogGrid[r][c] = true;
+
     this._redrawFog();
   }
 
@@ -413,7 +423,7 @@ export default class GameScene extends Phaser.Scene {
     // Room floor tiles
     for (let r = room.y; r < room.y + room.h; r++)
       for (let c = room.x; c < room.x + room.w; c++)
-        this.fogGrid[r][c] = true;
+        this.visGrid[r][c] = true;
 
     // Wall border: only tiles orthogonally adjacent to border floor tiles
     // (no diagonal corners — you can't see around a corner)
@@ -426,7 +436,7 @@ export default class GameScene extends Phaser.Scene {
           const wr = r + dr, wc = c + dc;
           if (wr >= 0 && wr < MAP_ROWS && wc >= 0 && wc < MAP_COLS
               && this.roomGrid[wr][wc] < 0)
-            this.fogGrid[wr][wc] = true;
+            this.visGrid[wr][wc] = true;
         }
       }
     }
@@ -461,22 +471,20 @@ export default class GameScene extends Phaser.Scene {
   // When hitting a room, reveal the slice aligned with the corridor axis
   // (±1 tile either side of the corridor column/row, full depth of the room).
   _revealCorridor(pr, pc) {
-    this.fogGrid[pr][pc] = true;
+    this.visGrid[pr][pc] = true;
 
     for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
       let r = pr + dr, c = pc + dc;
       while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 0) {
-        this.fogGrid[r][c] = true;
+        this.visGrid[r][c] = true;
 
         // 1 tile to each side (perpendicular)
         for (const [sr, sc] of [[r + dc, c + dr], [r - dc, c - dr]]) {
           if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS)
-            this.fogGrid[sr][sc] = true;
+            this.visGrid[sr][sc] = true;
         }
 
         // Hit a room: reveal the slice aligned with the corridor
-        // Vertical ray (dr!=0): corridor column is c (dc==0 so c is constant) → filter by column
-        // Horizontal ray (dc!=0): corridor row is r (dr==0 so r is constant) → filter by row
         if (this.roomGrid[r][c] >= 0) {
           const hitRoom = this.rooms[this.roomGrid[r][c]];
           for (let rr = hitRoom.y - 1; rr <= hitRoom.y + hitRoom.h; rr++) {
@@ -484,7 +492,7 @@ export default class GameScene extends Phaser.Scene {
               if (rr < 0 || rr >= MAP_ROWS || rc < 0 || rc >= MAP_COLS) continue;
               const inSlice = dr !== 0 ? Math.abs(rc - c) <= 1
                                        : Math.abs(rr - r) <= 1;
-              if (inSlice) this.fogGrid[rr][rc] = true;
+              if (inSlice) this.visGrid[rr][rc] = true;
             }
           }
           break;
@@ -493,12 +501,11 @@ export default class GameScene extends Phaser.Scene {
         c += dc;
       }
       // Reveal the wall tile that stopped the ray + its perpendicular neighbours
-      // (the corner wall tiles at the corridor terminus)
       if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 1) {
-        this.fogGrid[r][c] = true;
+        this.visGrid[r][c] = true;
         for (const [sr, sc] of [[r + dc, c + dr], [r - dc, c - dr]]) {
           if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS)
-            this.fogGrid[sr][sc] = true;
+            this.visGrid[sr][sc] = true;
         }
       }
     }
@@ -506,6 +513,13 @@ export default class GameScene extends Phaser.Scene {
 
   _redrawFog() {
     this.fogGfx.clear();
+    // Seen but not currently visible → dim overlay
+    this.fogGfx.fillStyle(0x000000, 0.65);
+    for (let r = 0; r < MAP_ROWS; r++)
+      for (let c = 0; c < MAP_COLS; c++)
+        if (this.fogGrid[r][c] && !this.visGrid[r][c])
+          this.fogGfx.fillRect(c * TILE, r * TILE, TILE, TILE);
+    // Never seen → solid black
     this.fogGfx.fillStyle(0x000000, 1);
     for (let r = 0; r < MAP_ROWS; r++)
       for (let c = 0; c < MAP_COLS; c++)
