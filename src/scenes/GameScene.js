@@ -201,10 +201,11 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // --- DEBUG: show screen dimensions and button anchor points ---
-    this.add.text(4, H - 4,
-      `screen ${W}×${H}\nBAG(${Math.round(W/2)},${Math.round(H-JOY_MARGIN)})\nEND(${Math.round(W-JOY_MARGIN)},${Math.round(H-JOY_MARGIN)})`,
+    this.add.text(4, 68,
+      `phaser ${W}×${H}  window ${window.innerWidth}×${window.innerHeight}\n` +
+      `BAG(${Math.round(W/2)},${Math.round(H-JOY_MARGIN)})  END(${Math.round(W-JOY_MARGIN)},${Math.round(H-JOY_MARGIN)})`,
       { fontSize: '11px', color: '#ffff00', stroke: '#000', strokeThickness: 2, lineSpacing: 2 }
-    ).setOrigin(0, 1).setScrollFactor(0).setDepth(50);
+    ).setOrigin(0, 0).setScrollFactor(0).setDepth(50);
 
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
