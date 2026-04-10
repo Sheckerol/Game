@@ -200,6 +200,12 @@ export default class GameScene extends Phaser.Scene {
       this.inventoryOpen ? this._closeInventory() : this._openInventory();
     });
 
+    // --- DEBUG: show screen dimensions and button anchor points ---
+    this.add.text(4, H - 4,
+      `screen ${W}×${H}\nBAG(${Math.round(W/2)},${Math.round(H-JOY_MARGIN)})\nEND(${Math.round(W-JOY_MARGIN)},${Math.round(H-JOY_MARGIN)})`,
+      { fontSize: '11px', color: '#ffff00', stroke: '#000', strokeThickness: 2, lineSpacing: 2 }
+    ).setOrigin(0, 1).setScrollFactor(0).setDepth(50);
+
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = {
