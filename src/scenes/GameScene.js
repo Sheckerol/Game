@@ -288,6 +288,30 @@ export default class GameScene extends Phaser.Scene {
     this.visGrid     = Array.from({ length: MAP_ROWS }, () => new Array(MAP_COLS).fill(false));
     this.lastFogTile = { r: -1, c: -1 };
     this.fogGfx      = this.add.graphics().setDepth(5);
+
+    // --- Debug overlay (toggle with D key or DBG button) ---
+    this.debugMode = false;
+    this.debugGfx  = this.add.graphics().setDepth(15); // above fog + player
+
+    // DBG button (top-left, below HP bar)
+    const dbgBtn = this.add.circle(30, 105, 20, 0x553311)
+      .setScrollFactor(0).setDepth(10).setInteractive();
+    this.add.text(30, 105, 'DBG', {
+      fontSize: '9px', color: '#ffcc88', stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    dbgBtn.on('pointerdown', () => {
+      this.debugMode = !this.debugMode;
+      if (!this.debugMode) this.debugGfx.clear();
+      else this._drawDebug();
+    });
+
+    // D key toggle (desktop / Bluetooth keyboard)
+    this.input.keyboard.on('keydown-D', () => {
+      this.debugMode = !this.debugMode;
+      if (!this.debugMode) this.debugGfx.clear();
+      else this._drawDebug();
+    });
+
     this._updateFog();
 
     // --- Build inventory panel (hidden) ---
@@ -532,6 +556,68 @@ export default class GameScene extends Phaser.Scene {
       for (let c = 0; c < MAP_COLS; c++)
         if (!this.fogGrid[r][c])
           this.fogGfx.fillRect(c * TILE, r * TILE, TILE, TILE);
+    this._drawDebug();
+  }
+
+  // ---------------------------------------------------------------
+  // Debug overlay — shows visGrid tiles and ray paths.
+  // Toggle with D key or the DBG button.
+  // Ray colours: North=red, South=cyan, West=magenta, East=yellow
+  _drawDebug() {
+    this.debugGfx.clear();
+    if (!this.debugMode) return;
+
+    const tileR = Math.floor(this.player.y / TILE);
+    const tileC = Math.floor(this.player.x / TILE);
+
+    // 1. Highlight all currently-visible tiles (visGrid) in green
+    this.debugGfx.fillStyle(0x00ff00, 0.25);
+    for (let r = 0; r < MAP_ROWS; r++)
+      for (let c = 0; c < MAP_COLS; c++)
+        if (this.visGrid[r][c])
+          this.debugGfx.fillRect(c * TILE + 1, r * TILE + 1, TILE - 2, TILE - 2);
+
+    // 2. Outline the player's current tile in white
+    this.debugGfx.lineStyle(2, 0xffffff, 1);
+    this.debugGfx.strokeRect(tileC * TILE, tileR * TILE, TILE, TILE);
+
+    // 3. Draw the 4 directional rays from the player's tile
+    const DIR_COLORS = [0xff4444, 0x44ffff, 0xff44ff, 0xffff44]; // N, S, W, E
+    for (const [[dr, dc], color] of [
+      [[-1,0], DIR_COLORS[0]], [[1,0], DIR_COLORS[1]],
+      [[0,-1], DIR_COLORS[2]], [[0,1],  DIR_COLORS[3]],
+    ]) {
+      this.debugGfx.lineStyle(2, color, 0.9);
+      let r = tileR + dr, c = tileC + dc;
+      while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 0) {
+        // Outline each floor tile the ray passes through
+        this.debugGfx.strokeRect(c * TILE + 2, r * TILE + 2, TILE - 4, TILE - 4);
+        // Mark side tiles (perpendicular, 2 tiles deep like the reveal logic)
+        for (const [sdr, sdc] of [[dc, dr], [-dc, -dr]]) {
+          const sr = r + sdr, sc = c + sdc;
+          if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS) {
+            this.debugGfx.lineStyle(1, color, 0.4);
+            this.debugGfx.strokeRect(sc * TILE + 4, sr * TILE + 4, TILE - 8, TILE - 8);
+            // Second side tile (for 2-wide corridors)
+            if (this.mapGrid[sr][sc] === 0 && this.roomGrid[sr][sc] < 0) {
+              const wr = sr + sdr, wc = sc + sdc;
+              if (wr >= 0 && wr < MAP_ROWS && wc >= 0 && wc < MAP_COLS) {
+                this.debugGfx.lineStyle(1, color, 0.2);
+                this.debugGfx.strokeRect(wc * TILE + 6, wr * TILE + 6, TILE - 12, TILE - 12);
+              }
+            }
+            this.debugGfx.lineStyle(2, color, 0.9); // restore
+          }
+        }
+        if (this.roomGrid[r][c] >= 0) break; // ray enters room, stop
+        r += dr; c += dc;
+      }
+      // End wall tile
+      if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 1) {
+        this.debugGfx.lineStyle(3, color, 1);
+        this.debugGfx.strokeRect(c * TILE, r * TILE, TILE, TILE);
+      }
+    }
   }
 
   // ---------------------------------------------------------------
