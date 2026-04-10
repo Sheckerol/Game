@@ -9,10 +9,10 @@ const config = {
   },
   scene: [GameScene],
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 480,
-    height: 800,
+    width: window.innerWidth,
+    height: window.innerHeight,
   },
 };
 
