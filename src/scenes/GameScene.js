@@ -206,11 +206,24 @@ export default class GameScene extends Phaser.Scene {
     // --- Virtual joystick ---
     this.joy = { active: false, pointerId: null, baseX: 0, baseY: 0, dx: 0, dy: 0 };
     this.joyGfx = this.add.graphics().setScrollFactor(0).setDepth(10);
-    this._drawJoystick(JOY_MARGIN, 800 - JOY_MARGIN, 0, 0, false);
+    this._drawJoystick(JOY_MARGIN, this.scale.height - JOY_MARGIN, 0, 0, false);
+
+    // --- Pinch-to-zoom ---
+    this._pinchDist = null;
 
     this.input.on('pointerdown', (ptr) => {
       if (this.justAttacked) { this.justAttacked = false; return; }
-      if (ptr.x < 240 && !this.joy.active && !this.inventoryOpen) {
+      // Second finger down → start pinch, cancel joystick
+      if (this.input.pointer1.isDown && this.input.pointer2.isDown) {
+        const p1 = this.input.pointer1, p2 = this.input.pointer2;
+        this._pinchDist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
+        this.joy.active = false;
+        this.joy.pointerId = null;
+        this.joy.dx = 0;
+        this.joy.dy = 0;
+        return;
+      }
+      if (ptr.x < this.scale.width / 2 && !this.joy.active && !this.inventoryOpen) {
         this.joy.active = true;
         this.joy.pointerId = ptr.id;
         this.joy.baseX = ptr.x;
@@ -221,6 +234,21 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (ptr) => {
+      // Pinch zoom: two fingers → adjust camera zoom
+      if (this.input.pointer1.isDown && this.input.pointer2.isDown) {
+        const p1 = this.input.pointer1, p2 = this.input.pointer2;
+        const dist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
+        if (this._pinchDist !== null) {
+          const zoom = Phaser.Math.Clamp(
+            this.cameras.main.zoom * (dist / this._pinchDist), 0.25, 3
+          );
+          this.cameras.main.setZoom(zoom);
+        }
+        this._pinchDist = dist;
+        return;
+      }
+      this._pinchDist = null;
+
       if (this.joy.active && ptr.id === this.joy.pointerId) {
         let dx = ptr.x - this.joy.baseX;
         let dy = ptr.y - this.joy.baseY;
@@ -236,12 +264,15 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (ptr) => {
+      // If either finger lifts, end pinch
+      if (!this.input.pointer1.isDown || !this.input.pointer2.isDown)
+        this._pinchDist = null;
       if (ptr.id === this.joy.pointerId) {
         this.joy.active = false;
         this.joy.pointerId = null;
         this.joy.dx = 0;
         this.joy.dy = 0;
-        this._drawJoystick(JOY_MARGIN, 800 - JOY_MARGIN, 0, 0, false);
+        this._drawJoystick(JOY_MARGIN, this.scale.height - JOY_MARGIN, 0, 0, false);
       }
     });
 
