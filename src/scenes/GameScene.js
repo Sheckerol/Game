@@ -200,13 +200,11 @@ export default class GameScene extends Phaser.Scene {
       this.inventoryOpen ? this._closeInventory() : this._openInventory();
     });
 
-    // --- DEBUG: show screen dimensions and button anchor points ---
-    this.add.text(W / 2, H / 2,
-      `phaser ${W}x${H}\nwindow ${window.innerWidth}x${window.innerHeight}\n` +
-      `BAG(${Math.round(W/2)},${Math.round(H-JOY_MARGIN)})\nEND(${Math.round(W-JOY_MARGIN)},${Math.round(H-JOY_MARGIN)})`,
-      { fontSize: '22px', color: '#ffff00', stroke: '#000000', strokeThickness: 4,
-        align: 'center', lineSpacing: 6 }
-    ).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+    // --- DEBUG: hijack weapon label to show dimension/button info ---
+    this.weaponText.setText(
+      `ph:${W}x${H} win:${window.innerWidth}x${window.innerHeight} ` +
+      `BAG(${Math.round(W/2)},${Math.round(H-JOY_MARGIN)}) END(${Math.round(W-JOY_MARGIN)},${Math.round(H-JOY_MARGIN)})`
+    );
 
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
