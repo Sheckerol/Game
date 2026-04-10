@@ -618,9 +618,10 @@ export default class GameScene extends Phaser.Scene {
     this.turnEnding = true;
     this.player.body.setVelocity(0, 0);
 
-    // Gray out all previously-visible tiles; they'll be re-revealed at turn start
+    // Gray out tiles not visible from current position at turn end
     for (let r = 0; r < MAP_ROWS; r++) this.visGrid[r].fill(false);
-    this._redrawFog();
+    this.lastFogTile = { r: -1, c: -1 }; // force recalculate
+    this._updateFog();
     this._drawRange();
     this.turnMsg.setVisible(true);
     this.time.delayedCall(800, () => {
@@ -708,10 +709,6 @@ export default class GameScene extends Phaser.Scene {
     if (!this.dummy.alive && this.turnCount - this.dummy.defeatedAtTurn >= 3) {
       this._resurrectDummy();
     }
-
-    // Recalculate visibility from current (settled) position at turn start
-    this.lastFogTile = { r: -1, c: -1 };
-    this._updateFog();
 
     const bonus         = this.savedMovement;
     this.savedMovement  = 0;
