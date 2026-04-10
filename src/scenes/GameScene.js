@@ -390,8 +390,7 @@ export default class GameScene extends Phaser.Scene {
     if (tileR === this.lastFogTile.r && tileC === this.lastFogTile.c) return;
     this.lastFogTile = { r: tileR, c: tileC };
 
-    // Reset current-visibility grid, then recalculate from player position
-    for (let r = 0; r < MAP_ROWS; r++) this.visGrid[r].fill(false);
+    // Recalculate from player position, accumulating into visGrid for the whole turn
     this._revealFromPosition(tileR, tileC);
 
     // Merge into persistent fog (tiles stay revealed once seen)
@@ -618,6 +617,11 @@ export default class GameScene extends Phaser.Scene {
   _endTurn() {
     this.turnEnding = true;
     this.player.body.setVelocity(0, 0);
+
+    // Gray out tiles not visible from current position at turn end
+    for (let r = 0; r < MAP_ROWS; r++) this.visGrid[r].fill(false);
+    this.lastFogTile = { r: -1, c: -1 }; // force recalculate
+    this._updateFog();
     this._drawRange();
     this.turnMsg.setVisible(true);
     this.time.delayedCall(800, () => {
