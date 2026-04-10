@@ -200,12 +200,6 @@ export default class GameScene extends Phaser.Scene {
       this.inventoryOpen ? this._closeInventory() : this._openInventory();
     });
 
-    // --- DEBUG: hijack weapon label to show dimension/button info ---
-    this.weaponText.setText(
-      `ph:${W}x${H} win:${window.innerWidth}x${window.innerHeight} ` +
-      `BAG(${Math.round(W/2)},${Math.round(H-JOY_MARGIN)}) END(${Math.round(W-JOY_MARGIN)},${Math.round(H-JOY_MARGIN)})`
-    );
-
     // --- Keyboard ---
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = {
