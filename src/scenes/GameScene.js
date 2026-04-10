@@ -146,14 +146,20 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setFollowOffset(0, -160);
 
+    // Screen dimensions (updated by RESIZE mode)
+    const W = this.scale.width;
+    const H = this.scale.height;
+    this.W = W;
+    this.H = H;
+
     // --- UI: move counter ---
-    this.movesText = this.add.text(240, 20, this._distLabel(), {
+    this.movesText = this.add.text(W / 2, 20, this._distLabel(), {
       fontSize: '18px', color: '#ffffff',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
 
     // --- UI: equipped weapon label ---
-    this.weaponText = this.add.text(240, 46, this._weaponLabel(), {
+    this.weaponText = this.add.text(W / 2, 46, this._weaponLabel(), {
       fontSize: '13px', color: '#ffdd00',
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(10);
@@ -166,15 +172,15 @@ export default class GameScene extends Phaser.Scene {
     this._drawPlayerHp();
 
     // --- UI: end of turn message ---
-    this.turnMsg = this.add.text(240, 400, 'End of Turn!', {
+    this.turnMsg = this.add.text(W / 2, H / 2, 'End of Turn!', {
       fontSize: '28px', color: '#f5a623',
       stroke: '#000000', strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(10).setVisible(false);
 
     // --- End Turn button (bottom-right) ---
-    this.endTurnBtn = this.add.circle(400, 720, 44, 0x2266cc)
+    this.endTurnBtn = this.add.circle(W - JOY_MARGIN, H - JOY_MARGIN, 44, 0x2266cc)
       .setScrollFactor(0).setDepth(10).setInteractive();
-    this.add.text(400, 720, 'END\nTURN', {
+    this.add.text(W - JOY_MARGIN, H - JOY_MARGIN, 'END\nTURN', {
       fontSize: '13px', color: '#ffffff', stroke: '#000000',
       strokeThickness: 2, align: 'center',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
@@ -184,9 +190,9 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // --- Bag button (bottom-center) ---
-    this.bagBtn = this.add.circle(240, 720, 44, 0x446644)
+    this.bagBtn = this.add.circle(W / 2, H - JOY_MARGIN, 44, 0x446644)
       .setScrollFactor(0).setDepth(10).setInteractive();
-    this.add.text(240, 720, 'BAG', {
+    this.add.text(W / 2, H - JOY_MARGIN, 'BAG', {
       fontSize: '16px', color: '#ffffff', stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.bagBtn.on('pointerdown', () => {
@@ -204,9 +210,10 @@ export default class GameScene extends Phaser.Scene {
     };
 
     // --- Virtual joystick ---
+    this.input.addPointer(1); // enable second touch point for pinch
     this.joy = { active: false, pointerId: null, baseX: 0, baseY: 0, dx: 0, dy: 0 };
     this.joyGfx = this.add.graphics().setScrollFactor(0).setDepth(10);
-    this._drawJoystick(JOY_MARGIN, this.scale.height - JOY_MARGIN, 0, 0, false);
+    this._drawJoystick(JOY_MARGIN, H - JOY_MARGIN, 0, 0, false);
 
     // --- Pinch-to-zoom ---
     this._pinchDist = null;
@@ -726,13 +733,14 @@ export default class GameScene extends Phaser.Scene {
 
   _gameOver() {
     this.turnEnding = true;
-    this.add.rectangle(240, 400, 480, 800, 0x000000, 0.7)
+    const W = this.W, H = this.H;
+    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.7)
       .setScrollFactor(0).setDepth(40);
-    this.add.text(240, 380, 'GAME OVER', {
+    this.add.text(W / 2, H / 2 - 40, 'GAME OVER', {
       fontSize: '44px', color: '#ff2222',
       stroke: '#000000', strokeThickness: 6,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(41);
-    this.add.text(240, 440, 'Refresh to restart', {
+    this.add.text(W / 2, H / 2 + 30, 'Refresh to restart', {
       fontSize: '18px', color: '#aaaaaa',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(41);
@@ -795,9 +803,9 @@ export default class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------
 
   _buildInventoryPanel() {
-    const cx = 240;
+    const cx = this.W / 2;
     const panelW = 380, panelH = 460;
-    const panelTop = 170; // screen top of panel (400 - panelH/2)
+    const panelTop = this.H / 2 - panelH / 2; // vertically centred
     const cardW = panelW - 40, cardH = 58;
     const SF = 0, D = 25;
 
@@ -812,10 +820,10 @@ export default class GameScene extends Phaser.Scene {
     ];
 
     // --- Static elements ---
-    const overlay = this.add.rectangle(cx, 400, 480, 800, 0x000000, 0.65)
+    const overlay = this.add.rectangle(cx, this.H / 2, this.W, this.H, 0x000000, 0.65)
       .setScrollFactor(SF).setDepth(D).setInteractive();
 
-    const panelBg = this.add.rectangle(cx, 400, panelW, panelH, 0x1a1a2e)
+    const panelBg = this.add.rectangle(cx, this.H / 2, panelW, panelH, 0x1a1a2e)
       .setStrokeStyle(2, 0x4fc3f7).setScrollFactor(SF).setDepth(D);
 
     const title = this.add.text(cx, panelTop + 26, 'INVENTORY', {
