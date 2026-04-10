@@ -477,10 +477,18 @@ export default class GameScene extends Phaser.Scene {
       while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 0) {
         this.visGrid[r][c] = true;
 
-        // 1 tile to each side (perpendicular)
-        for (const [sr, sc] of [[r + dc, c + dr], [r - dc, c - dr]]) {
-          if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS)
-            this.visGrid[sr][sc] = true;
+        // Up to 2 tiles perpendicular — handles 2-wide corridors:
+        // if the immediate side tile is a corridor floor, also reveal the wall beyond it
+        for (const [sdr, sdc] of [[dc, dr], [-dc, -dr]]) {
+          const sr = r + sdr, sc = c + sdc;
+          if (sr < 0 || sr >= MAP_ROWS || sc < 0 || sc >= MAP_COLS) continue;
+          this.visGrid[sr][sc] = true;
+          if (this.mapGrid[sr][sc] === 0 && this.roomGrid[sr][sc] < 0) {
+            const wr = sr + sdr, wc = sc + sdc;
+            if (wr >= 0 && wr < MAP_ROWS && wc >= 0 && wc < MAP_COLS
+                && this.mapGrid[wr][wc] === 1)
+              this.visGrid[wr][wc] = true;
+          }
         }
 
         // Hit a room: reveal the slice aligned with the corridor
