@@ -559,9 +559,35 @@ export default class GameScene extends Phaser.Scene {
       }
     } else {
       // 3b. Mode 2: raw pre-expansion geometry (rooms / H-corridors / V-corridors)
-      this.debugGfx.lineStyle(2, 0xff8800, 0.85);
-      for (const r of this.debugRooms)
-        this.debugGfx.strokeRect(r.x * TILE, r.y * TILE, r.w * TILE, r.h * TILE);
+      // Rooms: orange normally, yellow when floor bleeds around a corner or both
+      // ends of the same wall face are open (signals an edge-case overlap).
+      const g   = this.mapGrid;
+      const flr = (r, c) =>
+        r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && g[r][c] === 0;
+
+      for (const rm of this.debugRooms) {
+        const { x: rx, y: ry, w: rw, h: rh } = rm;
+        // 8 check tiles — 2 per corner, one along each adjacent wall face:
+        const TL_l = flr(ry,        rx - 1);      // TL corner: left face
+        const TL_t = flr(ry - 1,    rx);           // TL corner: top face
+        const TR_t = flr(ry - 1,    rx + rw - 1); // TR corner: top face
+        const TR_r = flr(ry,        rx + rw);     // TR corner: right face
+        const BL_l = flr(ry + rh-1, rx - 1);     // BL corner: left face
+        const BL_b = flr(ry + rh,   rx);          // BL corner: bottom face
+        const BR_r = flr(ry + rh-1, rx + rw);    // BR corner: right face
+        const BR_b = flr(ry + rh,   rx + rw - 1);// BR corner: bottom face
+
+        // Flag if both tiles at any corner are floor (geometry wraps around corner)
+        const cornerHit = (TL_l && TL_t) || (TR_t && TR_r) ||
+                          (BL_l && BL_b) || (BR_r && BR_b);
+        // Flag if both tiles on the same wall face are floor (two entries on one side)
+        const sideHit   = (TL_l && BL_l) || (TL_t && TR_t) ||
+                          (TR_r && BR_r) || (BL_b && BR_b);
+
+        const roomColor = (cornerHit || sideHit) ? 0xffff00 : 0xff8800;
+        this.debugGfx.lineStyle(2, roomColor, 0.85);
+        this.debugGfx.strokeRect(rx * TILE, ry * TILE, rw * TILE, rh * TILE);
+      }
 
       this.debugGfx.lineStyle(2, 0x00ffff, 0.85);
       for (const s of this.debugCorridors)
