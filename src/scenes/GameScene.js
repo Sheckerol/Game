@@ -47,6 +47,31 @@ export default class GameScene extends Phaser.Scene {
     this.mapGrid  = grid;
     this.roomGrid = roomGrid;
     this.rooms    = rooms;
+
+    // Expand each corridor segment to the nearest walls along its axis.
+    // Both rows (horizontal) or both columns (vertical) of the 2-wide corridor
+    // must be open floor for expansion to continue, so the box never bleeds
+    // through a room wall that only partially overlaps the corridor.
+    for (const seg of corridors) {
+      if (seg.dir === 'h') {
+        while (seg.x > 0
+               && grid[seg.y    ][seg.x - 1] === 0
+               && grid[seg.y + 1][seg.x - 1] === 0) { seg.x--; seg.w++; }
+        let xEnd = seg.x + seg.w;
+        while (xEnd < MAP_COLS
+               && grid[seg.y    ][xEnd] === 0
+               && grid[seg.y + 1][xEnd] === 0) { seg.w++; xEnd++; }
+      } else {
+        while (seg.y > 0
+               && grid[seg.y - 1][seg.x    ] === 0
+               && grid[seg.y - 1][seg.x + 1] === 0) { seg.y--; seg.h++; }
+        let yEnd = seg.y + seg.h;
+        while (yEnd < MAP_ROWS
+               && grid[yEnd][seg.x    ] === 0
+               && grid[yEnd][seg.x + 1] === 0) { seg.h++; yEnd++; }
+      }
+    }
+
     this.fogBoxes = [
       ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
       ...corridors,
@@ -338,7 +363,7 @@ export default class GameScene extends Phaser.Scene {
         if (y   >= 1 && y   < rows-1 && x >= 1 && x < cols-1) grid[y][x]   = 0;
         if (y+1 >= 1 && y+1 < rows-1 && x >= 1 && x < cols-1) grid[y+1][x] = 0;
       }
-      corridors.push({ x: xa, y: y, w: xb - xa + 1, h: 2 });
+      corridors.push({ x: xa, y: y, w: xb - xa + 1, h: 2, dir: 'h' });
     };
 
     // Carve a 2-tile-wide vertical run (stays inside border)
@@ -348,7 +373,7 @@ export default class GameScene extends Phaser.Scene {
         if (y >= 1 && y < rows-1 && x   >= 1 && x   < cols-1) grid[y][x]   = 0;
         if (y >= 1 && y < rows-1 && x+1 >= 1 && x+1 < cols-1) grid[y][x+1] = 0;
       }
-      corridors.push({ x: x, y: ya, w: 2, h: yb - ya + 1 });
+      corridors.push({ x: x, y: ya, w: 2, h: yb - ya + 1, dir: 'v' });
     };
 
     // Place rooms
