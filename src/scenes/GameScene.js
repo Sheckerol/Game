@@ -69,6 +69,7 @@ export default class GameScene extends Phaser.Scene {
             y: Math.min(a.y, b.y),
             w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x),
             h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
+            isJunction: true,
           });
         }
       }
@@ -149,7 +150,7 @@ export default class GameScene extends Phaser.Scene {
     for (let i = 0; i < unionBase; i++) {
       for (let j = i + 1; j < unionBase; j++) {
         const a = this.fogBoxes[i], b = this.fogBoxes[j];
-        if (a.isRoom || b.isRoom) continue;
+        if (a.isRoom || b.isRoom || a.isJunction || b.isJunction) continue;
         if (a.x < b.x + b.w && a.x + a.w > b.x &&
             a.y < b.y + b.h && a.y + a.h > b.y) {
           this.fogBoxes.push({
