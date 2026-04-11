@@ -48,6 +48,32 @@ export default class GameScene extends Phaser.Scene {
     this.roomGrid = roomGrid;
     this.rooms    = rooms;
 
+    // Pre-expansion junction pass: detect overlaps between rooms and raw corridor
+    // segments BEFORE corridors are expanded to wall-to-wall length.  Because the
+    // segments are still short (room-center to room-center), the resulting union
+    // boxes are small and targeted — they cover L-corners and room-corridor entry
+    // points without ballooning into the huge rectangles that post-expansion unions
+    // would produce for room+corridor pairs.
+    const rawBoxes = [
+      ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, isRoom: true })),
+      ...corridors,
+    ];
+    const junctionBoxes = [];
+    for (let i = 0; i < rawBoxes.length; i++) {
+      for (let j = i + 1; j < rawBoxes.length; j++) {
+        const a = rawBoxes[i], b = rawBoxes[j];
+        if (a.x < b.x + b.w && a.x + a.w > b.x &&
+            a.y < b.y + b.h && a.y + a.h > b.y) {
+          junctionBoxes.push({
+            x: Math.min(a.x, b.x),
+            y: Math.min(a.y, b.y),
+            w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x),
+            h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
+          });
+        }
+      }
+    }
+
     // Expand each corridor segment to the nearest walls along its axis.
     // Both rows (horizontal) or both columns (vertical) of the 2-wide corridor
     // must be open floor for expansion to continue, so the box never bleeds
@@ -75,6 +101,7 @@ export default class GameScene extends Phaser.Scene {
     this.fogBoxes = [
       ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, isRoom: true })),
       ...corridors,
+      ...junctionBoxes,
     ];
 
     // Gap-fill pass: any floor tile not covered by an existing fog box gets its
