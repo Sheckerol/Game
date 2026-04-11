@@ -43,10 +43,14 @@ export default class GameScene extends Phaser.Scene {
   create() {
     // --- Generate map ---
     // Depth order: floor (0) → range circles (1) → walls (2) → entities (3) → HP/labels (4) → UI (10) → inventory (25)
-    const { grid, roomGrid, rooms, playerStart, enemyStart } = this._generateMap();
+    const { grid, roomGrid, rooms, corridors, playerStart, enemyStart } = this._generateMap();
     this.mapGrid  = grid;
     this.roomGrid = roomGrid;
     this.rooms    = rooms;
+    this.fogBoxes = [
+      ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
+      ...corridors,
+    ];
 
     this.wallGroup = this.physics.add.staticGroup();
     const floorGfx = this.add.graphics().setDepth(0);
@@ -325,6 +329,7 @@ export default class GameScene extends Phaser.Scene {
     // Start with all walls; roomGrid tracks which room each floor tile belongs to (-1 = corridor/wall)
     const grid     = Array.from({ length: rows }, () => new Array(cols).fill(1));
     const roomGrid = Array.from({ length: rows }, () => new Array(cols).fill(-1));
+    const corridors = [];
 
     // Carve a 2-tile-wide horizontal run (stays inside border)
     const carveH = (y, x1, x2) => {
@@ -333,6 +338,7 @@ export default class GameScene extends Phaser.Scene {
         if (y   >= 1 && y   < rows-1 && x >= 1 && x < cols-1) grid[y][x]   = 0;
         if (y+1 >= 1 && y+1 < rows-1 && x >= 1 && x < cols-1) grid[y+1][x] = 0;
       }
+      corridors.push({ x: xa, y: y, w: xb - xa + 1, h: 2 });
     };
 
     // Carve a 2-tile-wide vertical run (stays inside border)
@@ -342,6 +348,7 @@ export default class GameScene extends Phaser.Scene {
         if (y >= 1 && y < rows-1 && x   >= 1 && x   < cols-1) grid[y][x]   = 0;
         if (y >= 1 && y < rows-1 && x+1 >= 1 && x+1 < cols-1) grid[y][x+1] = 0;
       }
+      corridors.push({ x: x, y: ya, w: 2, h: yb - ya + 1 });
     };
 
     // Place rooms
@@ -400,7 +407,7 @@ export default class GameScene extends Phaser.Scene {
       if (d > maxDist) { maxDist = d; enemyStart = [r.cy, r.cx]; }
     }
 
-    return { grid, roomGrid, rooms, playerStart, enemyStart };
+    return { grid, roomGrid, rooms, corridors, playerStart, enemyStart };
   }
 
   // ---------------------------------------------------------------
@@ -421,7 +428,7 @@ export default class GameScene extends Phaser.Scene {
     fogState.lastTile = { r: tileR, c: tileC };
 
     // Recalculate from player position, accumulating into visGrid for the whole turn
-    this._revealFromPosition(tileR, tileC, fogState.visGrid);
+    this._revealBoxesAt(tileR, tileC, fogState.visGrid);
 
     // Merge into persistent fog (tiles stay revealed once seen)
     for (let r = 0; r < MAP_ROWS; r++)
@@ -431,86 +438,25 @@ export default class GameScene extends Phaser.Scene {
     this._redrawFog();
   }
 
-  _revealFromPosition(pr, pc, visGrid) {
-    const roomIdx = this.roomGrid[pr]?.[pc];
-    if (roomIdx >= 0) {
-      this._revealRoom(roomIdx, visGrid);
-    } else if (this.mapGrid[pr]?.[pc] === 0) {
-      this._revealCorridor(pr, pc, visGrid);
-    }
-  }
-
-  // Reveal all tiles in the room + surrounding wall border (1 tile into adjacent corridors).
-  // Does NOT call _revealCorridor — corridor rays are driven from _revealCorridor itself.
-  _revealRoom(roomIdx, visGrid) {
-    const room = this.rooms[roomIdx];
-
-    // Room floor tiles
-    for (let r = room.y; r < room.y + room.h; r++)
-      for (let c = room.x; c < room.x + room.w; c++)
-        visGrid[r][c] = true;
-
-    // Wall border: orthogonal neighbors of border floor tiles (includes 1 corridor entrance tile)
-    for (let r = room.y; r < room.y + room.h; r++) {
-      for (let c = room.x; c < room.x + room.w; c++) {
-        const onBorder = r === room.y || r === room.y + room.h - 1
-                      || c === room.x || c === room.x + room.w - 1;
-        if (!onBorder) continue;
-        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-          const wr = r + dr, wc = c + dc;
-          if (wr >= 0 && wr < MAP_ROWS && wc >= 0 && wc < MAP_COLS
-              && this.roomGrid[wr][wc] < 0)
-            visGrid[wr][wc] = true;
-        }
+  // Zone-based reveal: find every fogBox the player's tile is inside, reveal all tiles in each.
+  _revealBoxesAt(tileR, tileC, visGrid) {
+    for (const box of this.fogBoxes) {
+      if (tileR >= box.y && tileR < box.y + box.h &&
+          tileC >= box.x && tileC < box.x + box.w) {
+        this._revealBox(box, visGrid);
       }
     }
   }
 
-  // In a corridor: reveal the tile, cast rays in 4 directions.
-  // Reveals corridor tiles + side tiles (2 deep for 2-wide corridors).
-  // When a ray enters a room, reveals the full room then continues beyond.
-  _revealCorridor(pr, pc, visGrid) {
-    visGrid[pr][pc] = true;
-
-    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-      let r = pr + dr, c = pc + dc;
-      while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 0) {
+  // Reveal all tiles inside the box plus a 1-tile wall border around it.
+  _revealBox(box, visGrid) {
+    const r0 = Math.max(0, box.y - 1);
+    const r1 = Math.min(MAP_ROWS - 1, box.y + box.h);
+    const c0 = Math.max(0, box.x - 1);
+    const c1 = Math.min(MAP_COLS - 1, box.x + box.w);
+    for (let r = r0; r <= r1; r++)
+      for (let c = c0; c <= c1; c++)
         visGrid[r][c] = true;
-
-        if (this.roomGrid[r][c] >= 0) {
-          // Ray entered a room: reveal the full room, then skip past all room tiles
-          // in this direction so the ray can continue to corridors on the far side.
-          this._revealRoom(this.roomGrid[r][c], visGrid);
-          do { r += dr; c += dc; }
-          while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS
-                 && this.mapGrid[r][c] === 0 && this.roomGrid[r][c] >= 0);
-          continue;
-        }
-
-        // Corridor tile: reveal up to 2 tiles perpendicular (handles 2-wide corridors)
-        for (const [sdr, sdc] of [[dc, dr], [-dc, -dr]]) {
-          const sr = r + sdr, sc = c + sdc;
-          if (sr < 0 || sr >= MAP_ROWS || sc < 0 || sc >= MAP_COLS) continue;
-          visGrid[sr][sc] = true;
-          if (this.mapGrid[sr][sc] === 0 && this.roomGrid[sr][sc] < 0) {
-            const wr = sr + sdr, wc = sc + sdc;
-            if (wr >= 0 && wr < MAP_ROWS && wc >= 0 && wc < MAP_COLS
-                && this.mapGrid[wr][wc] === 1)
-              visGrid[wr][wc] = true;
-          }
-        }
-
-        r += dr; c += dc;
-      }
-      // Reveal the wall tile that stopped the ray + its perpendicular neighbours
-      if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 1) {
-        visGrid[r][c] = true;
-        for (const [sr, sc] of [[r + dc, c + dr], [r - dc, c - dr]]) {
-          if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS)
-            visGrid[sr][sc] = true;
-        }
-      }
-    }
   }
 
   _redrawFog() {
@@ -555,49 +501,20 @@ export default class GameScene extends Phaser.Scene {
     this.debugGfx.lineStyle(2, 0xffffff, 1);
     this.debugGfx.strokeRect(tileC * TILE, tileR * TILE, TILE, TILE);
 
-    // 3. Draw the 4 directional rays from the player's tile
-    const DIR_COLORS = [0xff4444, 0x44ffff, 0xff44ff, 0xffff44]; // N, S, W, E
-    for (const [[dr, dc], color] of [
-      [[-1,0], DIR_COLORS[0]], [[1,0], DIR_COLORS[1]],
-      [[0,-1], DIR_COLORS[2]], [[0,1],  DIR_COLORS[3]],
-    ]) {
-      this.debugGfx.lineStyle(2, color, 0.9);
-      let r = tileR + dr, c = tileC + dc;
-      while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 0) {
-        // Outline each floor tile the ray passes through
-        this.debugGfx.lineStyle(2, color, 0.9);
-        this.debugGfx.strokeRect(c * TILE + 2, r * TILE + 2, TILE - 4, TILE - 4);
-        if (this.roomGrid[r][c] >= 0) {
-          // Skip through room tiles (mirrors _revealCorridor behavior)
-          do { r += dr; c += dc; }
-          while (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS
-                 && this.mapGrid[r][c] === 0 && this.roomGrid[r][c] >= 0);
-          continue;
-        }
-        // Mark side tiles (perpendicular, 2 tiles deep like the reveal logic)
-        for (const [sdr, sdc] of [[dc, dr], [-dc, -dr]]) {
-          const sr = r + sdr, sc = c + sdc;
-          if (sr >= 0 && sr < MAP_ROWS && sc >= 0 && sc < MAP_COLS) {
-            this.debugGfx.lineStyle(1, color, 0.4);
-            this.debugGfx.strokeRect(sc * TILE + 4, sr * TILE + 4, TILE - 8, TILE - 8);
-            // Second side tile (for 2-wide corridors)
-            if (this.mapGrid[sr][sc] === 0 && this.roomGrid[sr][sc] < 0) {
-              const wr = sr + sdr, wc = sc + sdc;
-              if (wr >= 0 && wr < MAP_ROWS && wc >= 0 && wc < MAP_COLS) {
-                this.debugGfx.lineStyle(1, color, 0.2);
-                this.debugGfx.strokeRect(wc * TILE + 6, wr * TILE + 6, TILE - 12, TILE - 12);
-              }
-            }
-            this.debugGfx.lineStyle(2, color, 0.9); // restore
-          }
-        }
-        r += dr; c += dc;
-      }
-      // End wall tile
-      if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && this.mapGrid[r][c] === 1) {
-        this.debugGfx.lineStyle(3, color, 1);
-        this.debugGfx.strokeRect(c * TILE, r * TILE, TILE, TILE);
-      }
+    // 3. Draw each fog box as a colored outline.
+    //    Boxes containing the player are brighter and thicker.
+    const BOX_COLORS = [
+      0xff4444, 0xffff44, 0x44ff44, 0x44ffff,
+      0x4444ff, 0xff44ff, 0xff8844, 0x44ff88,
+      0x88ff44, 0xff4488, 0x8844ff, 0x44ffdd,
+    ];
+    for (let i = 0; i < this.fogBoxes.length; i++) {
+      const box   = this.fogBoxes[i];
+      const color = BOX_COLORS[i % BOX_COLORS.length];
+      const inBox = tileR >= box.y && tileR < box.y + box.h &&
+                    tileC >= box.x && tileC < box.x + box.w;
+      this.debugGfx.lineStyle(inBox ? 3 : 1, color, inBox ? 1.0 : 0.5);
+      this.debugGfx.strokeRect(box.x * TILE, box.y * TILE, box.w * TILE, box.h * TILE);
     }
   }
 
