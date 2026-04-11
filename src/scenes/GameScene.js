@@ -587,6 +587,21 @@ export default class GameScene extends Phaser.Scene {
         const roomColor = (cornerHit || sideHit) ? 0xffff00 : 0xff8800;
         this.debugGfx.lineStyle(2, roomColor, 0.85);
         this.debugGfx.strokeRect(rx * TILE, ry * TILE, rw * TILE, rh * TILE);
+
+        // White union outline: expand 1 tile on each side that has floor adjacent
+        if (cornerHit || sideHit) {
+          const leftF   = TL_l || BL_l;
+          const topF    = TL_t || TR_t;
+          const rightF  = TR_r || BR_r;
+          const bottomF = BL_b || BR_b;
+          let ux = rx, uy = ry, uw = rw, uh = rh;
+          if (leftF)   { ux -= 1; uw += 1; }
+          if (topF)    { uy -= 1; uh += 1; }
+          if (rightF)  { uw += 1; }
+          if (bottomF) { uh += 1; }
+          this.debugGfx.lineStyle(2, 0xffffff, 0.9);
+          this.debugGfx.strokeRect(ux * TILE, uy * TILE, uw * TILE, uh * TILE);
+        }
       }
 
       this.debugGfx.lineStyle(2, 0x00ffff, 0.85);
