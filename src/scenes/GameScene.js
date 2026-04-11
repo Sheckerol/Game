@@ -77,6 +77,41 @@ export default class GameScene extends Phaser.Scene {
       ...corridors,
     ];
 
+    // Gap-fill pass: any floor tile not covered by an existing fog box gets its
+    // own box via BFS. This catches narrow corners, 1-wide boundary corridors,
+    // and any other edge case where the "both-lanes" expansion stopped too early.
+    const covered = Array.from({ length: MAP_ROWS }, () => new Uint8Array(MAP_COLS));
+    for (const box of this.fogBoxes) {
+      const r0 = Math.max(0, box.y),         r1 = Math.min(MAP_ROWS, box.y + box.h);
+      const c0 = Math.max(0, box.x),         c1 = Math.min(MAP_COLS, box.x + box.w);
+      for (let r = r0; r < r1; r++)
+        for (let c = c0; c < c1; c++)
+          covered[r][c] = 1;
+    }
+    for (let r0 = 0; r0 < MAP_ROWS; r0++) {
+      for (let c0 = 0; c0 < MAP_COLS; c0++) {
+        if (grid[r0][c0] !== 0 || covered[r0][c0]) continue;
+        // BFS over connected uncovered floor tiles → bounding box → new fog box
+        let minR = r0, maxR = r0, minC = c0, maxC = c0;
+        const queue = [[r0, c0]];
+        covered[r0][c0] = 1;
+        while (queue.length) {
+          const [r, c] = queue.shift();
+          if (r < minR) minR = r; if (r > maxR) maxR = r;
+          if (c < minC) minC = c; if (c > maxC) maxC = c;
+          for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < MAP_ROWS && nc >= 0 && nc < MAP_COLS
+                && grid[nr][nc] === 0 && !covered[nr][nc]) {
+              covered[nr][nc] = 1;
+              queue.push([nr, nc]);
+            }
+          }
+        }
+        this.fogBoxes.push({ x: minC, y: minR, w: maxC - minC + 1, h: maxR - minR + 1 });
+      }
+    }
+
     this.wallGroup = this.physics.add.staticGroup();
     const floorGfx = this.add.graphics().setDepth(0);
     const wallGfx  = this.add.graphics().setDepth(2);
