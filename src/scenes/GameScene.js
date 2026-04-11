@@ -48,33 +48,6 @@ export default class GameScene extends Phaser.Scene {
     this.roomGrid = roomGrid;
     this.rooms    = rooms;
 
-    // Pre-expansion junction pass: detect overlaps between rooms and raw corridor
-    // segments BEFORE corridors are expanded to wall-to-wall length.  Because the
-    // segments are still short (room-center to room-center), the resulting union
-    // boxes are small and targeted — they cover L-corners and room-corridor entry
-    // points without ballooning into the huge rectangles that post-expansion unions
-    // would produce for room+corridor pairs.
-    const rawBoxes = [
-      ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, isRoom: true })),
-      ...corridors,
-    ];
-    const junctionBoxes = [];
-    for (let i = 0; i < rawBoxes.length; i++) {
-      for (let j = i + 1; j < rawBoxes.length; j++) {
-        const a = rawBoxes[i], b = rawBoxes[j];
-        if (a.x < b.x + b.w && a.x + a.w > b.x &&
-            a.y < b.y + b.h && a.y + a.h > b.y) {
-          junctionBoxes.push({
-            x: Math.min(a.x, b.x),
-            y: Math.min(a.y, b.y),
-            w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x),
-            h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
-            isJunction: true,
-          });
-        }
-      }
-    }
-
     // Expand each corridor segment to the nearest walls along its axis.
     // Both rows (horizontal) or both columns (vertical) of the 2-wide corridor
     // must be open floor for expansion to continue, so the box never bleeds
@@ -100,9 +73,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.fogBoxes = [
-      ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, isRoom: true })),
+      ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
       ...corridors,
-      ...junctionBoxes,
     ];
 
     // Gap-fill pass: any floor tile not covered by an existing fog box gets its
@@ -137,29 +109,6 @@ export default class GameScene extends Phaser.Scene {
           }
         }
         this.fogBoxes.push({ x: minC, y: minR, w: maxC - minC + 1, h: maxR - minR + 1 });
-      }
-    }
-
-    // Union pass: for every pair of overlapping non-room boxes, add their union
-    // bounding rectangle as a new fog box.  When the player is in either corridor
-    // they are also inside the union box, so _revealBox expands 1 tile outside the
-    // COMBINED boundary — correctly showing the outer walls of the merged zone.
-    // Room boxes are excluded: a corridor cutting through a room is already handled
-    // by the player being inside both the corridor box and the room box at once.
-    const unionBase = this.fogBoxes.length;
-    for (let i = 0; i < unionBase; i++) {
-      for (let j = i + 1; j < unionBase; j++) {
-        const a = this.fogBoxes[i], b = this.fogBoxes[j];
-        if (a.isRoom || b.isRoom || a.isJunction || b.isJunction) continue;
-        if (a.x < b.x + b.w && a.x + a.w > b.x &&
-            a.y < b.y + b.h && a.y + a.h > b.y) {
-          this.fogBoxes.push({
-            x: Math.min(a.x, b.x),
-            y: Math.min(a.y, b.y),
-            w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x),
-            h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
-          });
-        }
       }
     }
 
