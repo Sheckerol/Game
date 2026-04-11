@@ -417,12 +417,24 @@ export default class GameScene extends Phaser.Scene {
         const d = Math.abs(a.cx - rooms[j].cx) + Math.abs(a.cy - rooms[j].cy);
         if (d < minD) { minD = d; nearest = rooms[j]; }
       }
-      // L-shaped corridor — randomly pick which leg goes first
+      // L-shaped corridor — randomly pick which leg goes first.
+      // Shift the V column and extend its row range so the 2-wide lanes meet
+      // flush at the corner (no 1-tile jog sticking out past either endpoint).
       if (Math.random() < 0.5) {
-        carveH(a.cy,      a.cx, nearest.cx);
-        carveV(nearest.cx, a.cy, nearest.cy);
+        // H first, V second
+        // If H went RIGHT, V's +1 col would overhang → pull V left by 1
+        const vCol    = a.cx < nearest.cx ? nearest.cx - 1 : nearest.cx;
+        // If V goes UP, H's +1 row would overhang past V's bottom → extend V down 1
+        const vRowEnd = nearest.cy < a.cy  ? a.cy + 1       : a.cy;
+        carveH(a.cy, a.cx, nearest.cx);
+        carveV(vCol, vRowEnd, nearest.cy);
       } else {
-        carveV(a.cx,      a.cy, nearest.cy);
+        // V first, H second
+        // If H goes LEFT, V's +1 col would overhang → pull V left by 1
+        const vCol    = nearest.cx < a.cx  ? a.cx - 1       : a.cx;
+        // If V goes DOWN, H's +1 row would overhang past V's bottom → extend V down 1
+        const vRowEnd = nearest.cy > a.cy  ? nearest.cy + 1 : nearest.cy;
+        carveV(vCol, a.cy, vRowEnd);
         carveH(nearest.cy, a.cx, nearest.cx);
       }
     }
