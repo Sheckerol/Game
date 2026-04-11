@@ -48,6 +48,10 @@ export default class GameScene extends Phaser.Scene {
     this.roomGrid = roomGrid;
     this.rooms    = rooms;
 
+    // Snapshot pre-expansion geometry for debug visualization (mode 2)
+    this.debugRooms     = rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+    this.debugCorridors = corridors.map(s => ({ x: s.x, y: s.y, w: s.w, h: s.h, dir: s.dir }));
+
     // Expand each corridor segment to the nearest walls along its axis.
     // Both rows (horizontal) or both columns (vertical) of the 2-wide corridor
     // must be open floor for expansion to continue, so the box never bleeds
@@ -76,41 +80,6 @@ export default class GameScene extends Phaser.Scene {
       ...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
       ...corridors,
     ];
-
-    // Gap-fill pass: any floor tile not covered by an existing fog box gets its
-    // own box via BFS. This catches narrow corners, 1-wide boundary corridors,
-    // and any other edge case where the "both-lanes" expansion stopped too early.
-    const covered = Array.from({ length: MAP_ROWS }, () => new Uint8Array(MAP_COLS));
-    for (const box of this.fogBoxes) {
-      const r0 = Math.max(0, box.y),         r1 = Math.min(MAP_ROWS, box.y + box.h);
-      const c0 = Math.max(0, box.x),         c1 = Math.min(MAP_COLS, box.x + box.w);
-      for (let r = r0; r < r1; r++)
-        for (let c = c0; c < c1; c++)
-          covered[r][c] = 1;
-    }
-    for (let r0 = 0; r0 < MAP_ROWS; r0++) {
-      for (let c0 = 0; c0 < MAP_COLS; c0++) {
-        if (grid[r0][c0] !== 0 || covered[r0][c0]) continue;
-        // BFS over connected uncovered floor tiles → bounding box → new fog box
-        let minR = r0, maxR = r0, minC = c0, maxC = c0;
-        const queue = [[r0, c0]];
-        covered[r0][c0] = 1;
-        while (queue.length) {
-          const [r, c] = queue.shift();
-          if (r < minR) minR = r; if (r > maxR) maxR = r;
-          if (c < minC) minC = c; if (c > maxC) maxC = c;
-          for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            const nr = r + dr, nc = c + dc;
-            if (nr >= 0 && nr < MAP_ROWS && nc >= 0 && nc < MAP_COLS
-                && grid[nr][nc] === 0 && !covered[nr][nc]) {
-              covered[nr][nc] = 1;
-              queue.push([nr, nc]);
-            }
-          }
-        }
-        this.fogBoxes.push({ x: minC, y: minR, w: maxC - minC + 1, h: maxR - minR + 1 });
-      }
-    }
 
     this.wallGroup = this.physics.add.staticGroup();
     const floorGfx = this.add.graphics().setDepth(0);
@@ -352,7 +321,7 @@ export default class GameScene extends Phaser.Scene {
     this.fogGfx    = this.add.graphics().setDepth(5);
 
     // --- Debug overlay (toggle with D key or DBG button) ---
-    this.debugMode = false;
+    this.debugMode = 0;
     this.debugGfx  = this.add.graphics().setDepth(15); // above fog + player
 
     // DBG button (top-left, below HP bar)
@@ -362,15 +331,15 @@ export default class GameScene extends Phaser.Scene {
       fontSize: '9px', color: '#ffcc88', stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
     dbgBtn.on('pointerdown', () => {
-      this.debugMode = !this.debugMode;
-      if (!this.debugMode) this.debugGfx.clear();
+      this.debugMode = (this.debugMode + 1) % 3;
+      if (this.debugMode === 0) this.debugGfx.clear();
       else this._drawDebug();
     });
 
     // D key toggle (desktop / Bluetooth keyboard)
     this.input.keyboard.on('keydown-D', () => {
-      this.debugMode = !this.debugMode;
-      if (!this.debugMode) this.debugGfx.clear();
+      this.debugMode = (this.debugMode + 1) % 3;
+      if (this.debugMode === 0) this.debugGfx.clear();
       else this._drawDebug();
     });
 
@@ -545,7 +514,7 @@ export default class GameScene extends Phaser.Scene {
   // Ray colours: North=red, South=cyan, West=magenta, East=yellow
   _drawDebug() {
     this.debugGfx.clear();
-    if (!this.debugMode) return;
+    if (this.debugMode === 0) return;
 
     const tileR = Math.floor(this.player.y / TILE);
     const tileC = Math.floor(this.player.x / TILE);
@@ -561,20 +530,36 @@ export default class GameScene extends Phaser.Scene {
     this.debugGfx.lineStyle(2, 0xffffff, 1);
     this.debugGfx.strokeRect(tileC * TILE, tileR * TILE, TILE, TILE);
 
-    // 3. Draw each fog box as a colored outline.
-    //    Boxes containing the player are brighter and thicker.
-    const BOX_COLORS = [
-      0xff4444, 0xffff44, 0x44ff44, 0x44ffff,
-      0x4444ff, 0xff44ff, 0xff8844, 0x44ff88,
-      0x88ff44, 0xff4488, 0x8844ff, 0x44ffdd,
-    ];
-    for (let i = 0; i < this.fogBoxes.length; i++) {
-      const box   = this.fogBoxes[i];
-      const color = BOX_COLORS[i % BOX_COLORS.length];
-      const inBox = tileR >= box.y && tileR < box.y + box.h &&
-                    tileC >= box.x && tileC < box.x + box.w;
-      this.debugGfx.lineStyle(inBox ? 3 : 1, color, inBox ? 1.0 : 0.5);
-      this.debugGfx.strokeRect(box.x * TILE, box.y * TILE, box.w * TILE, box.h * TILE);
+    if (this.debugMode === 1) {
+      // 3a. Mode 1: expanded fog-box outlines (multi-color, active box brighter)
+      const BOX_COLORS = [
+        0xff4444, 0xffff44, 0x44ff44, 0x44ffff,
+        0x4444ff, 0xff44ff, 0xff8844, 0x44ff88,
+        0x88ff44, 0xff4488, 0x8844ff, 0x44ffdd,
+      ];
+      for (let i = 0; i < this.fogBoxes.length; i++) {
+        const box   = this.fogBoxes[i];
+        const color = BOX_COLORS[i % BOX_COLORS.length];
+        const inBox = tileR >= box.y && tileR < box.y + box.h &&
+                      tileC >= box.x && tileC < box.x + box.w;
+        this.debugGfx.lineStyle(inBox ? 3 : 1, color, inBox ? 1.0 : 0.5);
+        this.debugGfx.strokeRect(box.x * TILE, box.y * TILE, box.w * TILE, box.h * TILE);
+      }
+    } else {
+      // 3b. Mode 2: raw pre-expansion geometry (rooms / H-corridors / V-corridors)
+      this.debugGfx.lineStyle(2, 0xff8800, 0.85);
+      for (const r of this.debugRooms)
+        this.debugGfx.strokeRect(r.x * TILE, r.y * TILE, r.w * TILE, r.h * TILE);
+
+      this.debugGfx.lineStyle(2, 0x00ffff, 0.85);
+      for (const s of this.debugCorridors)
+        if (s.dir === 'h')
+          this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
+
+      this.debugGfx.lineStyle(2, 0xff44ff, 0.85);
+      for (const s of this.debugCorridors)
+        if (s.dir === 'v')
+          this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
     }
   }
 
