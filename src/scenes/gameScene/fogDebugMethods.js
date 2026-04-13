@@ -128,6 +128,12 @@ const fogDebugMethods = {
       if (s.dir === 'v') this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
     }
 
+    // Highlight parallel corridors that are side-by-side (touching) in white.
+    this.debugGfx.lineStyle(2, 0xffffff, 1);
+    for (const corridor of this._findSideBySideCorridors(this.expandedCorridors ?? this.debugCorridors)) {
+      this.debugGfx.strokeRect(corridor.x * TILE, corridor.y * TILE, corridor.w * TILE, corridor.h * TILE);
+    }
+
     this.debugGfx.fillStyle(0x00ff66, 0.35);
     this.debugGfx.lineStyle(2, 0x00ff66, 1);
     const highlights = this._findWhiteRoomCauseHighlights(whiteRoomCandidates);
@@ -182,7 +188,8 @@ const fogDebugMethods = {
       let bestVScore = 0;
 
       for (const corridor of this.debugCorridors) {
-        let score = 0;
+        const touchScore = this._parallelTouchOverlapScore(whiteRoom.room, corridor);
+        let score = touchScore * 1000;
         for (const tile of whiteRoom.triggerTiles) {
           if (this._rectContainsTile(corridor, tile.r, tile.c)) score++;
         }
@@ -233,7 +240,8 @@ const fogDebugMethods = {
 
       const cornerHit = (TL_l && TL_t) || (TR_t && TR_r) || (BL_l && BL_b) || (BR_r && BR_b);
       const sideHit = (TL_l && BL_l) || (TL_t && TR_t) || (TR_r && BR_r) || (BL_b && BR_b);
-      const flagged = cornerHit || sideHit;
+      const parallelTouchHit = this.debugCorridors.some(c => this._parallelTouchOverlapScore(rm, c) > 0);
+      const flagged = cornerHit || sideHit || parallelTouchHit;
 
       const triggerTiles = [];
       if (flagged) {
@@ -304,6 +312,49 @@ const fogDebugMethods = {
     }
 
     return boxes;
+  },
+
+  _corridorOverlapOrTouchBand(a, b) {
+    const overlap = this._rectIntersection(a, b);
+    if (overlap) return overlap;
+    if (a.dir !== b.dir) return null;
+
+    if (a.dir === 'h') {
+      const x0 = Math.max(a.x, b.x);
+      const x1 = Math.min(a.x + a.w, b.x + b.w);
+      if (x1 <= x0) return null;
+      if (a.y + a.h === b.y) return { x: x0, y: b.y, w: x1 - x0, h: 1 };
+      if (b.y + b.h === a.y) return { x: x0, y: a.y, w: x1 - x0, h: 1 };
+      return null;
+    }
+
+    const y0 = Math.max(a.y, b.y);
+    const y1 = Math.min(a.y + a.h, b.y + b.h);
+    if (y1 <= y0) return null;
+    if (a.x + a.w === b.x) return { x: b.x, y: y0, w: 1, h: y1 - y0 };
+    if (b.x + b.w === a.x) return { x: a.x, y: y0, w: 1, h: y1 - y0 };
+    return null;
+  },
+
+  _findSideBySideCorridors(corridors) {
+    const keys = new Set();
+    for (let i = 0; i < corridors.length; i++) {
+      for (let j = i + 1; j < corridors.length; j++) {
+        const a = corridors[i];
+        const b = corridors[j];
+        if (a.dir !== b.dir) continue;
+        if (this._rectIntersection(a, b)) continue; // overlapping is not side-by-side
+        const touchBand = this._corridorOverlapOrTouchBand(a, b);
+        if (!touchBand) continue;
+        keys.add(`${a.x},${a.y},${a.w},${a.h}`);
+        keys.add(`${b.x},${b.y},${b.w},${b.h}`);
+      }
+    }
+
+    return Array.from(keys, key => {
+      const [x, y, w, h] = key.split(',').map(Number);
+      return { x, y, w, h };
+    });
   },
 
   _buildParallelCorridorUnionRect(a, b, overlap) {
@@ -422,6 +473,27 @@ const fogDebugMethods = {
     const parallel = this._buildParallelCorridorUnionRect(a, b, overlap);
     const perpendicular = this._buildPerpendicularCorridorUnionRect(a, b, overlap);
     return perpendicular ? [parallel, perpendicular] : [parallel];
+  },
+
+  _parallelTouchOverlapScore(room, corridor) {
+    const overlapLen = corridor.dir === 'h'
+      ? this._segmentOverlap(room.x, room.x + room.w, corridor.x, corridor.x + corridor.w)
+      : this._segmentOverlap(room.y, room.y + room.h, corridor.y, corridor.y + corridor.h);
+    if (overlapLen <= 0) return 0;
+
+    if (corridor.dir === 'h') {
+      const touchesTop = corridor.y + corridor.h === room.y;
+      const touchesBottom = corridor.y === room.y + room.h;
+      return (touchesTop || touchesBottom) ? overlapLen : 0;
+    }
+
+    const touchesLeft = corridor.x + corridor.w === room.x;
+    const touchesRight = corridor.x === room.x + room.w;
+    return (touchesLeft || touchesRight) ? overlapLen : 0;
+  },
+
+  _segmentOverlap(a0, a1, b0, b1) {
+    return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
   },
 
   _buildPerpendicularCorridorUnionRect(a, b, overlap) {
