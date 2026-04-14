@@ -78,15 +78,6 @@ const fogDebugMethods = {
     const tileR = Math.floor(this.player.y / TILE);
     const tileC = Math.floor(this.player.x / TILE);
 
-    this.debugGfx.fillStyle(0x00ff00, 0.25);
-    for (let r = 0; r < MAP_ROWS; r++) {
-      for (let c = 0; c < MAP_COLS; c++) {
-        if (this.playerFog.visGrid[r][c]) {
-          this.debugGfx.fillRect(c * TILE + 1, r * TILE + 1, TILE - 2, TILE - 2);
-        }
-      }
-    }
-
     this.debugGfx.lineStyle(2, 0xffffff, 1);
     this.debugGfx.strokeRect(tileC * TILE, tileR * TILE, TILE, TILE);
 
