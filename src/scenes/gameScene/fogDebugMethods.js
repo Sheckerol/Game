@@ -119,9 +119,14 @@ const fogDebugMethods = {
       if (s.dir === 'v') this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
     }
 
-    // Highlight parallel corridors that are side-by-side (touching) in white.
+    // Highlight parallel corridors that are side-by-side (touching).
+    // White = expanded bounds, red = pre-expansion bounds (compare to see growth).
     this.debugGfx.lineStyle(2, 0xffffff, 1);
     for (const corridor of this._findSideBySideCorridors(this.expandedCorridors ?? this.debugCorridors)) {
+      this.debugGfx.strokeRect(corridor.x * TILE, corridor.y * TILE, corridor.w * TILE, corridor.h * TILE);
+    }
+    this.debugGfx.lineStyle(2, 0xff2222, 1);
+    for (const corridor of this._findSideBySideCorridors(this.debugCorridors)) {
       this.debugGfx.strokeRect(corridor.x * TILE, corridor.y * TILE, corridor.w * TILE, corridor.h * TILE);
     }
 
