@@ -220,8 +220,10 @@ const fogDebugMethods = {
 
       for (const otherRoom of roomBoxes) {
         const overlapsCorridorX = otherRoom.x < corridor.x + corridor.w && otherRoom.x + otherRoom.w > corridor.x;
-        const overlapsBandY = otherRoom.y < bandY1 && otherRoom.y + otherRoom.h > bandY0;
-        if (!overlapsCorridorX || !overlapsBandY) continue;
+        // Must *fully cover* the band height — overlapping is not enough, it would include
+        // tiles where the other room doesn't reach and those tiles may be walls.
+        const coversBandY = otherRoom.y <= bandY0 && otherRoom.y + otherRoom.h >= bandY1;
+        if (!overlapsCorridorX || !coversBandY) continue;
         x0 = Math.min(x0, otherRoom.x);
         x1 = Math.max(x1, otherRoom.x + otherRoom.w);
       }
@@ -236,9 +238,10 @@ const fogDebugMethods = {
     let y1 = Math.max(room.y + room.h, corridor.y + corridor.h);
 
     for (const otherRoom of roomBoxes) {
-      const overlapsBandX = otherRoom.x < bandX1 && otherRoom.x + otherRoom.w > bandX0;
+      // Must fully cover the band width
+      const coversBandX = otherRoom.x <= bandX0 && otherRoom.x + otherRoom.w >= bandX1;
       const overlapsCorridorY = otherRoom.y < corridor.y + corridor.h && otherRoom.y + otherRoom.h > corridor.y;
-      if (!overlapsBandX || !overlapsCorridorY) continue;
+      if (!coversBandX || !overlapsCorridorY) continue;
       y0 = Math.min(y0, otherRoom.y);
       y1 = Math.max(y1, otherRoom.y + otherRoom.h);
     }
@@ -256,9 +259,10 @@ const fogDebugMethods = {
       let y1 = Math.max(room.y + room.h, corridor.y + corridor.h);
 
       for (const otherRoom of roomBoxes) {
-        const overlapsBandX = otherRoom.x < bandX1 && otherRoom.x + otherRoom.w > bandX0;
+        // Must fully cover the band width so no wall tiles are included
+        const coversBandX = otherRoom.x <= bandX0 && otherRoom.x + otherRoom.w >= bandX1;
         const overlapsCorridorY = otherRoom.y < corridor.y + corridor.h && otherRoom.y + otherRoom.h > corridor.y;
-        if (!overlapsBandX || !overlapsCorridorY) continue;
+        if (!coversBandX || !overlapsCorridorY) continue;
         y0 = Math.min(y0, otherRoom.y);
         y1 = Math.max(y1, otherRoom.y + otherRoom.h);
       }
@@ -271,9 +275,10 @@ const fogDebugMethods = {
     let x1 = Math.max(room.x + room.w, corridor.x + corridor.w);
 
     for (const otherRoom of roomBoxes) {
-      const overlapsBandY = otherRoom.y < bandY1 && otherRoom.y + otherRoom.h > bandY0;
+      // Must fully cover the band height
+      const coversBandY = otherRoom.y <= bandY0 && otherRoom.y + otherRoom.h >= bandY1;
       const overlapsCorridorX = otherRoom.x < corridor.x + corridor.w && otherRoom.x + otherRoom.w > corridor.x;
-      if (!overlapsBandY || !overlapsCorridorX) continue;
+      if (!coversBandY || !overlapsCorridorX) continue;
       x0 = Math.min(x0, otherRoom.x);
       x1 = Math.max(x1, otherRoom.x + otherRoom.w);
     }
