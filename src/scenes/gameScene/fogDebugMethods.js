@@ -27,11 +27,25 @@ const fogDebugMethods = {
   },
 
   _revealBoxesAt(tileR, tileC, visGrid) {
+    // Phase 1: collect every box that directly contains the player tile.
+    const direct = this.fogBoxes.filter(b =>
+      tileR >= b.y && tileR < b.y + b.h &&
+      tileC >= b.x && tileC < b.x + b.w
+    );
+    if (!direct.length) return;
+
+    // Phase 2: one-level cascade — also reveal any box that overlaps a
+    // directly-triggered box.  This ensures that, e.g., standing in the
+    // upper part of a room also reveals a corridor that passes through the
+    // room's lower rows, so the corridor's extension past the room edge
+    // becomes visible without needing a special union zone.
+    const toReveal = new Set(direct);
     for (const box of this.fogBoxes) {
-      if (tileR >= box.y && tileR < box.y + box.h && tileC >= box.x && tileC < box.x + box.w) {
-        this._revealBox(box, visGrid);
-      }
+      if (toReveal.has(box)) continue;
+      if (direct.some(d => this._rectIntersection(d, box))) toReveal.add(box);
     }
+
+    for (const box of toReveal) this._revealBox(box, visGrid);
   },
 
   _revealBox(box, visGrid) {
