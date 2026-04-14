@@ -53,7 +53,7 @@ const setupMethods = {
     this.fogBoxes = [...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), ...corridors];
     this.unionFogBoxes = this._computeUnionFogBoxes();
     this.fogBoxes.push(...this.unionFogBoxes);
-    // this.fogBoxes = this._pruneFullyOverlappedBoxes(this.fogBoxes);
+    this.fogBoxes = this._pruneFullyOverlappedBoxes(this.fogBoxes);
 
     this.unionRooms = this.unionFogBoxes.map((box, i) => ({
       x: box.x,
@@ -368,7 +368,7 @@ const setupMethods = {
   },
 
   _toggleDebugMode() {
-    this.debugMode = (this.debugMode + 1) % 3;
+    this.debugMode = (this.debugMode + 1) % 2;
     if (this.debugMode === 0) this.debugGfx.clear();
     else this._drawDebug();
   },
