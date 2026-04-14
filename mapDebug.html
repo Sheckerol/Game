@@ -28,7 +28,7 @@
       background: #0f0f0f; padding: 4px 10px; font-size: 11px; color: #88cc88;
       border-bottom: 1px solid #1a1a1a; flex-shrink: 0;
       white-space: pre-wrap; word-break: break-all; line-height: 1.5;
-      max-height: 72px; overflow-y: auto;
+      max-height: 100px; overflow-y: auto;
     }
     #canvas-wrap { flex: 1; position: relative; overflow: hidden; touch-action: none; }
     canvas { position: absolute; top: 0; left: 0; }
@@ -130,6 +130,38 @@ const case4 = scene._computeSteppedCorridorUnionBoxes().map(b => ({ ...b, _case:
 const unionBoxes = [...case1, ...case2, ...case3, ...case4];
 const badUnionBoxes = unionBoxes.filter(b => b._walls?.length > 0);
 
+// ── Compute room/corridor intersections for each union box ────────────────
+// For each union box, find which debugRooms and expandedCorridors it overlaps
+// or is adjacent to (shares an edge with overlapping cross-axis range).
+function rectsOverlap(a, b) {
+  const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+  return x1 > x0 && y1 > y0;
+}
+function rectsAdjacent(a, b) {
+  // Shares a horizontal edge with overlapping x range
+  const xOverlap = Math.min(a.x + a.w, b.x + b.w) > Math.max(a.x, b.x);
+  if (xOverlap && (a.y + a.h === b.y || b.y + b.h === a.y)) return true;
+  // Shares a vertical edge with overlapping y range
+  const yOverlap = Math.min(a.y + a.h, b.y + b.h) > Math.max(a.y, b.y);
+  if (yOverlap && (a.x + a.w === b.x || b.x + b.w === a.x)) return true;
+  return false;
+}
+for (const ub of unionBoxes) {
+  ub._intRooms = [];     // rooms that overlap or touch this union box
+  ub._intCorridors = [];  // corridors that overlap or touch this union box
+  for (let ri = 0; ri < debugRooms.length; ri++) {
+    const r = debugRooms[ri];
+    if (rectsOverlap(ub, r) || rectsAdjacent(ub, r))
+      ub._intRooms.push({ idx: ri, room: r });
+  }
+  for (let ci = 0; ci < expandedCorridors.length; ci++) {
+    const c = expandedCorridors[ci];
+    if (rectsOverlap(ub, c) || rectsAdjacent(ub, c))
+      ub._intCorridors.push({ idx: ci, corr: c });
+  }
+}
+
 // ── Fog box layers ────────────────────────────────────────────────────────
 const roomFogBoxes     = debugRooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
 const corridorFogBoxes = expandedCorridors.map(c => ({ ...c }));
@@ -171,6 +203,7 @@ const wrap   = document.getElementById('canvas-wrap');
 
 let CELL = 8, panX = 0, panY = 0;
 let highlight = null;
+let selectedUnion = null;  // index into unionBoxes for intersection step
 
 function fitView() {
   const ww = wrap.clientWidth, wh = wrap.clientHeight;
@@ -202,6 +235,7 @@ const STEPS = [
   { name: '+ Corridors after expansion' },
   { name: 'Base fog boxes (rooms + expanded corridors)' },
   { name: 'Union zones by case (tap for details)' },
+  { name: 'Union room intersections (tap union box)' },
   { name: 'Final fog boxes after pruning' },
 ];
 let step = 0;
@@ -286,7 +320,7 @@ function draw() {
       ctx.fillRect(...tr(c, r));
     }
 
-  if (step >= 1)
+  if (step >= 1 && step !== 6)
     strokeBoxes(debugRooms, '#4488ff', 1.5, 0.9);
 
   if (step === 2)
@@ -324,6 +358,55 @@ function draw() {
   }
 
   if (step === 6) {
+    // Faint rooms and corridors for context
+    strokeBoxes(debugRooms,        '#4488ff', 1, 0.25);
+    strokeBoxes(expandedCorridors, '#ff8833', 1, 0.25);
+    // All union boxes faintly
+    strokeUnionByCase(unionBoxes, 1, 0.35, 0.08);
+
+    if (selectedUnion !== null && selectedUnion < unionBoxes.length) {
+      const ub = unionBoxes[selectedUnion];
+      // Highlight rooms this union box intersects
+      for (const { room } of ub._intRooms) {
+        fillBoxes([room], '#4488ff', 0.3);
+        strokeBoxes([room], '#4488ff', 2.5, 1);
+      }
+      // Highlight corridors this union box intersects
+      for (const { corr } of ub._intCorridors) {
+        fillBoxes([corr], '#ff8833', 0.25);
+        strokeBoxes([corr], '#ff8833', 2.5, 1);
+      }
+      // Draw the selected union box brightly
+      const col = CASE_COLORS[ub._case] ?? '#ffffff';
+      fillBoxes([ub], col, 0.35);
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.globalAlpha = 1;
+      ctx.strokeRect(...tr(ub.x, ub.y, ub.w, ub.h)); ctx.restore();
+      // Draw lines from union center to each intersecting room/corridor center
+      const ubCx = panX + (ub.x + ub.w / 2) * CELL;
+      const ubCy = panY + (ub.y + ub.h / 2) * CELL;
+      ctx.save(); ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+      for (const { room } of ub._intRooms) {
+        const rx = panX + (room.x + room.w / 2) * CELL;
+        const ry = panY + (room.y + room.h / 2) * CELL;
+        ctx.strokeStyle = '#4488ff';
+        ctx.beginPath(); ctx.moveTo(ubCx, ubCy); ctx.lineTo(rx, ry); ctx.stroke();
+      }
+      for (const { corr } of ub._intCorridors) {
+        const cx = panX + (corr.x + corr.w / 2) * CELL;
+        const cy = panY + (corr.y + corr.h / 2) * CELL;
+        ctx.strokeStyle = '#ff8833';
+        ctx.beginPath(); ctx.moveTo(ubCx, ubCy); ctx.lineTo(cx, cy); ctx.stroke();
+      }
+      ctx.restore();
+      markWallBoxes([ub]);
+    } else {
+      // No selection — show all union boxes at medium brightness
+      strokeUnionByCase(unionBoxes, 2, 0.8, 0.15);
+      markWallBoxes(unionBoxes);
+    }
+  }
+
+  if (step === 7) {
     fillBoxes(finalBoxes, '#1a3a1a', 0.45);
     strokeBoxes(finalBoxes, '#44ffdd', 1.5, 0.9);
     markWallBoxes(finalBoxes);
@@ -366,6 +449,20 @@ function renderLegend() {
     if (badUnionBoxes.length) h += `<div class="leg" style="color:#f44">⚠ ${badUnionBoxes.length} box(es) contain walls — tap ⚠ Jump</div>`;
   }
   if (step === 6) {
+    h += leg('#4488ff','Intersecting room', true);
+    h += leg('#ff8833','Intersecting corridor', true);
+    h += leg(CASE_COLORS[1], 'Case 1 union', true);
+    h += leg(CASE_COLORS[2], 'Case 2 union', true);
+    h += leg(CASE_COLORS[3], 'Case 3 union', true);
+    h += leg(CASE_COLORS[4], 'Case 4 union', true);
+    if (selectedUnion !== null && selectedUnion < unionBoxes.length) {
+      const ub = unionBoxes[selectedUnion];
+      h += `<div class="leg" style="color:#aaa">Selected: #${selectedUnion} — ${ub._intRooms.length} room(s), ${ub._intCorridors.length} corr(s)</div>`;
+    } else {
+      h += `<div class="leg" style="color:#aaa">Tap a union box to see its intersections</div>`;
+    }
+  }
+  if (step === 7) {
     h += leg('#44ffdd','Final fog box (pruned)', true);
     const wf = finalBoxes.filter(b => { for (let r=b.y;r<b.y+b.h;r++) for(let c=b.x;c<b.x+b.w;c++) if(grid[r]?.[c]===1) return true; return false; });
     if (wf.length) h += `<div class="leg" style="color:#f44">⚠ ${wf.length} final box(es) contain walls</div>`;
@@ -399,8 +496,18 @@ function showBadBoxDetail(b) {
 }
 
 function showStepSummary() {
+  if (step !== 6) selectedUnion = null;  // clear selection when leaving intersection step
   if (step === 5 && badUnionBoxes.length) {
     showBadBoxDetail(badUnionBoxes[0]);
+  } else if (step === 6) {
+    const total = unionBoxes.length;
+    const withRooms = unionBoxes.filter(ub => ub._intRooms.length > 0).length;
+    const withCorrs = unionBoxes.filter(ub => ub._intCorridors.length > 0).length;
+    const isolated = unionBoxes.filter(ub => ub._intRooms.length === 0 && ub._intCorridors.length === 0).length;
+    let msg = `${total} union boxes: ${withRooms} touch rooms, ${withCorrs} touch corridors`;
+    if (isolated) msg += `, ${isolated} isolated (no intersections!)`;
+    msg += '\nTap a union box to highlight its intersecting rooms & corridors';
+    document.getElementById('info').textContent = msg;
   } else {
     document.getElementById('info').textContent = 'Tap a tile to inspect';
   }
@@ -437,6 +544,25 @@ function inspectTile(sx, sy) {
     } else msg += '\n(no union zones here)';
   }
   if (step === 6) {
+    const hits = inBoxes(unionBoxes, r, c);
+    if (hits.length) {
+      // Select the first union box at this tile
+      selectedUnion = unionBoxes.indexOf(hits[0]);
+      const ub = hits[0];
+      msg += `\nUnion #${selectedUnion} ${fmtBox(ub)}`;
+      msg += `\n  Intersects ${ub._intRooms.length} room(s):`;
+      for (const { idx, room } of ub._intRooms)
+        msg += `\n    room#${idx} {x:${room.x} y:${room.y} w:${room.w} h:${room.h}}`;
+      msg += `\n  Intersects ${ub._intCorridors.length} corridor(s):`;
+      for (const { idx, corr } of ub._intCorridors)
+        msg += `\n    corr#${idx} {x:${corr.x} y:${corr.y} w:${corr.w} h:${corr.h} dir:${corr.dir}}`;
+    } else {
+      selectedUnion = null;
+      msg += '\n(no union box here — tap inside a union box)';
+    }
+    renderLegend();
+  }
+  if (step === 7) {
     const hits = inBoxes(finalBoxes, r, c);
     if (hits.length) msg += '\n' + hits.map(fmtBox).join('\n');
     else msg += '\n(no final fog box here)';
