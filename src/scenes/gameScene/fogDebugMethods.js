@@ -98,26 +98,6 @@ const fogDebugMethods = {
     }
 
     const whiteRoomCandidates = this._collectWhiteRoomCandidates();
-    for (const candidate of whiteRoomCandidates) {
-      const roomColor = candidate.flagged ? 0xffff00 : 0xff8800;
-      this.debugGfx.lineStyle(2, roomColor, 0.85);
-      this.debugGfx.strokeRect(
-        candidate.room.x * TILE,
-        candidate.room.y * TILE,
-        candidate.room.w * TILE,
-        candidate.room.h * TILE
-      );
-    }
-
-    this.debugGfx.lineStyle(2, 0x00ffff, 0.85);
-    for (const s of this.debugCorridors) {
-      if (s.dir === 'h') this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
-    }
-
-    this.debugGfx.lineStyle(2, 0xff44ff, 0.85);
-    for (const s of this.debugCorridors) {
-      if (s.dir === 'v') this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
-    }
 
     // Highlight parallel corridors that are side-by-side (touching).
     // White = expanded bounds, red = pre-expansion bounds (compare to see growth).
