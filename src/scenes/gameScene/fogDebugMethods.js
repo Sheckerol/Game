@@ -27,25 +27,11 @@ const fogDebugMethods = {
   },
 
   _revealBoxesAt(tileR, tileC, visGrid) {
-    // Phase 1: collect every box that directly contains the player tile.
-    const direct = this.fogBoxes.filter(b =>
-      tileR >= b.y && tileR < b.y + b.h &&
-      tileC >= b.x && tileC < b.x + b.w
-    );
-    if (!direct.length) return;
-
-    // Phase 2: one-level cascade — also reveal any box that overlaps a
-    // directly-triggered box.  This ensures that, e.g., standing in the
-    // upper part of a room also reveals a corridor that passes through the
-    // room's lower rows, so the corridor's extension past the room edge
-    // becomes visible without needing a special union zone.
-    const toReveal = new Set(direct);
-    for (const box of this.fogBoxes) {
-      if (toReveal.has(box)) continue;
-      if (direct.some(d => this._rectIntersection(d, box))) toReveal.add(box);
+    for (const b of this.fogBoxes) {
+      if (tileR >= b.y && tileR < b.y + b.h && tileC >= b.x && tileC < b.x + b.w) {
+        this._revealBox(b, visGrid);
+      }
     }
-
-    for (const box of toReveal) this._revealBox(box, visGrid);
   },
 
   _revealBox(box, visGrid) {
@@ -134,6 +120,25 @@ const fogDebugMethods = {
 
     // Case 4: stepped parallel corridors (touching boundary, no bounding-box overlap)
     for (const r of this._computeSteppedCorridorUnionBoxes()) add(r);
+
+    // Expansion pass: treat each union box as a room and check it against every
+    // corridor it overlaps or touches.  New union boxes may themselves overlap
+    // further corridors, so repeat until no new boxes are added.
+    const allCorridors = this.expandedCorridors ?? this.debugCorridors;
+    let prevCount;
+    do {
+      prevCount = boxes.length;
+      for (const ubox of [...boxes]) {
+        for (const corr of allCorridors) {
+          if (this._rectIntersection(ubox, corr)) {
+            for (const r of this._buildUnionRectsFromOverlap(ubox, corr)) add(r);
+          } else {
+            const r = this._buildAdjacentRect(ubox, corr);
+            if (r) add(r);
+          }
+        }
+      }
+    } while (boxes.length > prevCount);
 
     return boxes;
   },
@@ -374,6 +379,28 @@ const fogDebugMethods = {
     }
 
     return boxes;
+  },
+
+  // Returns a combined rect if box and corr are directly adjacent (no wall between),
+  // or null if they don't share an edge with overlapping cross-axis ranges.
+  _buildAdjacentRect(box, corr) {
+    if (corr.dir === 'h') {
+      const xOverlap0 = Math.max(box.x, corr.x);
+      const xOverlap1 = Math.min(box.x + box.w, corr.x + corr.w);
+      if (xOverlap1 <= xOverlap0) return null;
+      const below = corr.y === box.y + box.h;
+      const above = box.y === corr.y + corr.h;
+      if (!below && !above) return null;
+      return { x: xOverlap0, y: Math.min(box.y, corr.y), w: xOverlap1 - xOverlap0, h: box.h + corr.h };
+    } else {
+      const yOverlap0 = Math.max(box.y, corr.y);
+      const yOverlap1 = Math.min(box.y + box.h, corr.y + corr.h);
+      if (yOverlap1 <= yOverlap0) return null;
+      const right = corr.x === box.x + box.w;
+      const left  = box.x === corr.x + corr.w;
+      if (!right && !left) return null;
+      return { x: Math.min(box.x, corr.x), y: yOverlap0, w: box.w + corr.w, h: yOverlap1 - yOverlap0 };
+    }
   },
 
   // Case 4: two same-direction corridors that are stepped — they touch at a
