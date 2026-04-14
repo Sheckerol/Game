@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Map Debug</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a; color: #eee; font-family: monospace;
+      display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+    }
+    #toolbar {
+      background: #111; padding: 7px 10px; display: flex; gap: 8px;
+      align-items: center; border-bottom: 1px solid #2a2a2a;
+      flex-shrink: 0; flex-wrap: wrap;
+    }
+    #stepLabel { min-width: 44px; text-align: center; font-size: 13px; color: #aaa; }
+    #stepName { color: #88aaff; font-size: 12px; flex: 1; min-width: 0;
+                overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    button {
+      padding: 5px 13px; background: #222; color: #ccc; border: 1px solid #444;
+      border-radius: 5px; font-size: 14px; cursor: pointer;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    }
+    button:active { background: #333; }
+    #info {
+      background: #0f0f0f; padding: 4px 10px; font-size: 11px; color: #88cc88;
+      border-bottom: 1px solid #1a1a1a; flex-shrink: 0; min-height: 22px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #canvas-wrap { flex: 1; position: relative; overflow: hidden; touch-action: none; }
+    canvas { position: absolute; top: 0; left: 0; }
+    #legend {
+      position: absolute; bottom: 8px; right: 8px;
+      background: rgba(0,0,0,0.83); padding: 7px 10px; border-radius: 6px;
+      font-size: 11px; border: 1px solid #2a2a2a; pointer-events: none;
+    }
+    .leg { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+    .sw { width: 16px; height: 10px; border-radius: 2px; flex-shrink: 0;
+          border: 1px solid rgba(255,255,255,0.12); }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button id="btnPrev">◀</button>
+  <span id="stepLabel">1/7</span>
+  <button id="btnNext">▶</button>
+  <span id="stepName"></span>
+  <button id="btnFit">Fit</button>
+</div>
+<div id="info">Tap a tile to inspect</div>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+  <div id="legend"></div>
+</div>
+
+<script type="module">
+import { generateMap, expandCorridors, MAP_ROWS, MAP_COLS } from './src/mapGen.js';
+import fogDebugMethods from './src/scenes/gameScene/fogDebugMethods.js';
+
+// ── Seeded RNG (same mulberry32 as the game) ─────────────────────────────
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ── Generate map ──────────────────────────────────────────────────────────
+const SEED = 469139532;
+const { grid, corridors: rawCorridors, debugRooms, debugCorridors } = generateMap({ rng: mulberry32(SEED) });
+
+// Pre-expansion snapshot from inside generateMap
+const preCorridors = debugCorridors;
+
+// Expand a copy so rawCorridors stays clean for reference
+const expandedCorridors = rawCorridors.map(c => ({ ...c }));
+expandCorridors(expandedCorridors, grid);
+
+// Base fog boxes
+const roomFogBoxes    = debugRooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h, _k: 'room' }));
+const corridorFogBoxes = expandedCorridors.map(c => ({ ...c, _k: 'corridor' }));
+const baseFogBoxes    = [...roomFogBoxes, ...corridorFogBoxes];
+
+// Union zones via fogDebugMethods (bind a fake scene context)
+const scene = Object.create(fogDebugMethods);
+scene.debugRooms       = debugRooms;
+scene.expandedCorridors = expandedCorridors;
+// allRoomBoxes intentionally unset → _getRoomBoxesForUnion() falls back to debugRooms
+
+const unionBoxes = scene._computeUnionFogBoxes().map(b => ({ ...b, _k: 'union' }));
+const allBoxes   = [...baseFogBoxes, ...unionBoxes];
+
+// Prune (mirrors _pruneFullyOverlappedBoxes in setupMethods)
+function inside(inner, outer) {
+  return inner.x >= outer.x && inner.y >= outer.y &&
+         inner.x + inner.w <= outer.x + outer.w &&
+         inner.y + inner.h <= outer.y + outer.h;
+}
+function prune(boxes) {
+  const seen = new Set(), norm = [];
+  for (const b of boxes) {
+    if (!b || b.w <= 0 || b.h <= 0) continue;
+    const k = `${b.x},${b.y},${b.w},${b.h}`;
+    if (!seen.has(k)) { seen.add(k); norm.push(b); }
+  }
+  return norm.filter((a, i) => !norm.some((o, j) => i !== j && inside(a, o)));
+}
+const finalBoxes = prune(allBoxes);
+
+console.log(`Seed ${SEED}: ${debugRooms.length} rooms, ` +
+  `${preCorridors.length} corridors, ` +
+  `${unionBoxes.length} union zones, ` +
+  `${finalBoxes.length} final fog boxes`);
+
+// ── Canvas & viewport ─────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const wrap   = document.getElementById('canvas-wrap');
+
+let CELL = 8, panX = 0, panY = 0;
+let highlight = null; // { r, c }
+
+function fitView() {
+  const ww = wrap.clientWidth, wh = wrap.clientHeight;
+  CELL  = Math.max(2, Math.floor(Math.min(ww / MAP_COLS, wh / MAP_ROWS)));
+  panX  = Math.floor((ww - MAP_COLS * CELL) / 2);
+  panY  = Math.floor((wh - MAP_ROWS * CELL) / 2);
+  canvas.width = ww; canvas.height = wh;
+  draw();
+}
+new ResizeObserver(fitView).observe(wrap);
+
+// ── Steps ─────────────────────────────────────────────────────────────────
+const STEPS = [
+  { name: 'Grid — walls & floors' },
+  { name: '+ Original rooms' },
+  { name: '+ Corridors before expansion' },
+  { name: '+ Corridors after expansion' },
+  { name: 'Fog boxes: rooms + expanded corridors' },
+  { name: '+ Union fog zones' },
+  { name: 'Final fog boxes (pruned)' },
+];
+let step = 0;
+
+document.getElementById('btnPrev').onclick = () => { step = Math.max(0, step - 1); updateUI(); draw(); };
+document.getElementById('btnNext').onclick = () => { step = Math.min(STEPS.length - 1, step + 1); updateUI(); draw(); };
+document.getElementById('btnFit').onclick  = fitView;
+
+function updateUI() {
+  document.getElementById('stepLabel').textContent = `${step + 1}/${STEPS.length}`;
+  document.getElementById('stepName').textContent  = STEPS[step].name;
+  renderLegend();
+}
+
+// ── Draw helpers ──────────────────────────────────────────────────────────
+function tr(col, row, w = 1, h = 1) {
+  return [panX + col * CELL, panY + row * CELL, w * CELL, h * CELL];
+}
+function strokeBoxes(boxes, color, lw, alpha = 1) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.globalAlpha = alpha;
+  for (const b of boxes) ctx.strokeRect(...tr(b.x, b.y, b.w, b.h));
+  ctx.restore();
+}
+function fillBoxes(boxes, color, alpha) {
+  ctx.save();
+  ctx.fillStyle = color; ctx.globalAlpha = alpha;
+  for (const b of boxes) ctx.fillRect(...tr(b.x, b.y, b.w, b.h));
+  ctx.restore();
+}
+
+// ── Draw ──────────────────────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Grid tiles
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      ctx.fillStyle = grid[r][c] === 1
+        ? '#1a1a2e'
+        : ((r + c) % 2 === 0 ? '#16213e' : '#0f2a52');
+      ctx.fillRect(...tr(c, r));
+    }
+  }
+
+  // Step 1 — rooms
+  if (step >= 1)
+    strokeBoxes(debugRooms, '#4488ff', 1.5, 0.9);
+
+  // Step 2 — pre-expansion corridors
+  if (step === 2)
+    strokeBoxes(preCorridors, '#ffee44', 1, 0.85);
+
+  // Step 3 — both, expanded in orange
+  if (step === 3) {
+    strokeBoxes(preCorridors, '#ffee44', 1, 0.4);
+    strokeBoxes(expandedCorridors, '#ff8833', 2, 0.95);
+  }
+
+  // Step 4 — base fog boxes with fills
+  if (step === 4) {
+    fillBoxes(roomFogBoxes,     '#1a3a1a', 0.45);
+    fillBoxes(corridorFogBoxes, '#2a2010', 0.45);
+    strokeBoxes(roomFogBoxes,     '#4488ff', 1.5, 0.8);
+    strokeBoxes(corridorFogBoxes, '#ff8833', 1.5, 0.8);
+  }
+
+  // Step 5 — base + union
+  if (step === 5) {
+    fillBoxes(baseFogBoxes, '#1a3a1a', 0.3);
+    strokeBoxes(baseFogBoxes, '#44ff88', 1, 0.4);
+    fillBoxes(unionBoxes, '#3a1040', 0.55);
+    strokeBoxes(unionBoxes, '#ff44ff', 2, 0.95);
+  }
+
+  // Step 6 — final pruned
+  if (step === 6) {
+    fillBoxes(finalBoxes, '#1a3a1a', 0.45);
+    strokeBoxes(finalBoxes, '#44ffdd', 1.5, 0.9);
+  }
+
+  // Tapped tile highlight
+  if (highlight) {
+    const { r, c } = highlight;
+    ctx.save();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+    ctx.strokeRect(...tr(c, r));
+    ctx.restore();
+  }
+
+  // Player start dot (room 0 center)
+  const rm = debugRooms[0];
+  const pcx = panX + (rm.cx ?? rm.x + rm.w / 2) * CELL;
+  const pcy = panY + (rm.cy ?? rm.y + rm.h / 2) * CELL;
+  ctx.save();
+  ctx.fillStyle = '#ff4444';
+  ctx.beginPath();
+  ctx.arc(pcx, pcy, Math.max(3, CELL / 2), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Legend ────────────────────────────────────────────────────────────────
+function leg(color, label, outline = false) {
+  const border = outline ? `outline:1px solid ${color};` : `background:${color};`;
+  return `<div class="leg"><div class="sw" style="${border}"></div><span>${label}</span></div>`;
+}
+function renderLegend() {
+  let h = leg('#1a1a2e', 'Wall') + leg('#16213e', 'Floor');
+  if (step >= 1) h += leg('#4488ff', 'Room boundary', true);
+  if (step === 2) h += leg('#ffee44', 'Corridor (pre-expand)', true);
+  if (step === 3) {
+    h += leg('#ffee44', 'Corridor (pre-expand)', true);
+    h += leg('#ff8833', 'Corridor (expanded)', true);
+  }
+  if (step === 4) {
+    h += leg('#4488ff', 'Room fog box', true);
+    h += leg('#ff8833', 'Expanded corridor fog box', true);
+  }
+  if (step === 5) {
+    h += leg('#44ff88', 'Base fog box', true);
+    h += leg('#ff44ff', 'Union zone', true);
+  }
+  if (step === 6) h += leg('#44ffdd', 'Final fog box (pruned)', true);
+  h += leg('#ff4444', 'Player start');
+  document.getElementById('legend').innerHTML = h;
+}
+
+// ── Tile tap → inspect ────────────────────────────────────────────────────
+function screenToTile(sx, sy) {
+  return { c: Math.floor((sx - panX) / CELL), r: Math.floor((sy - panY) / CELL) };
+}
+function inBoxes(boxes, r, c) {
+  return boxes.filter(b => r >= b.y && r < b.y + b.h && c >= b.x && c < b.x + b.w);
+}
+function inspectTile(sx, sy) {
+  const rect = wrap.getBoundingClientRect();
+  const { c, r } = screenToTile(sx - rect.left, sy - rect.top);
+  if (r < 0 || r >= MAP_ROWS || c < 0 || c >= MAP_COLS) return;
+  highlight = { r, c };
+
+  const wall = grid[r][c] === 1 ? 'WALL' : 'floor';
+  let msg = `tile [col=${c}, row=${r}] ${wall}`;
+
+  if (step === 2 || step === 3) {
+    const pre = inBoxes(preCorridors, r, c).length;
+    const exp = inBoxes(expandedCorridors, r, c).length;
+    if (pre) msg += ` | pre-expand corridors: ${pre}`;
+    if (exp) msg += ` | expanded corridors: ${exp}`;
+  }
+  if (step === 4) {
+    const rm = inBoxes(roomFogBoxes, r, c).length;
+    const co = inBoxes(corridorFogBoxes, r, c).length;
+    msg += ` | room boxes: ${rm}, corridor boxes: ${co}`;
+  }
+  if (step === 5) {
+    const base  = inBoxes(baseFogBoxes, r, c).length;
+    const union = inBoxes(unionBoxes, r, c).length;
+    msg += ` | base: ${base}, union: ${union}`;
+  }
+  if (step === 6) {
+    const final = inBoxes(finalBoxes, r, c).length;
+    msg += ` | final fog boxes: ${final}`;
+  }
+
+  document.getElementById('info').textContent = msg;
+  draw();
+}
+
+// ── Pan & zoom — mouse ─────────────────────────────────────────────────────
+let dragging = false, dragMoved = false, lastMX = 0, lastMY = 0;
+canvas.addEventListener('mousedown', e => {
+  dragging = true; dragMoved = false; lastMX = e.clientX; lastMY = e.clientY;
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastMX, dy = e.clientY - lastMY;
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) dragMoved = true;
+  panX += dx; panY += dy;
+  lastMX = e.clientX; lastMY = e.clientY;
+  draw();
+});
+window.addEventListener('mouseup', e => {
+  if (!dragMoved) inspectTile(e.clientX, e.clientY);
+  dragging = false;
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const oldCell = CELL;
+  CELL = Math.max(2, Math.min(48, CELL - Math.sign(e.deltaY) * Math.max(1, Math.floor(CELL / 6))));
+  panX = Math.round(mx - (mx - panX) * (CELL / oldCell));
+  panY = Math.round(my - (my - panY) * (CELL / oldCell));
+  draw();
+}, { passive: false });
+
+// ── Pan & zoom — touch ────────────────────────────────────────────────────
+let prevTouches = [], touchMoved = false;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  prevTouches = Array.from(e.touches).map(t => ({ id: t.identifier, x: t.clientX, y: t.clientY }));
+  touchMoved = false;
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const cur = Array.from(e.touches).map(t => ({ id: t.identifier, x: t.clientX, y: t.clientY }));
+
+  if (cur.length === 1 && prevTouches.length === 1) {
+    const dx = cur[0].x - prevTouches[0].x, dy = cur[0].y - prevTouches[0].y;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) touchMoved = true;
+    panX += dx; panY += dy;
+    draw();
+  } else if (cur.length === 2 && prevTouches.length >= 2) {
+    touchMoved = true;
+    const d0 = Math.hypot(prevTouches[0].x - prevTouches[1].x, prevTouches[0].y - prevTouches[1].y);
+    const d1 = Math.hypot(cur[0].x - cur[1].x, cur[0].y - cur[1].y);
+    if (d0 > 0) {
+      const cx = (cur[0].x + cur[1].x) / 2, cy = (cur[0].y + cur[1].y) / 2;
+      const rect = wrap.getBoundingClientRect();
+      const mx = cx - rect.left, my = cy - rect.top;
+      const oldCell = CELL;
+      CELL = Math.max(2, Math.min(48, Math.round(CELL * d1 / d0)));
+      panX = Math.round(mx - (mx - panX) * (CELL / oldCell));
+      panY = Math.round(my - (my - panY) * (CELL / oldCell));
+      draw();
+    }
+  }
+  prevTouches = cur;
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  if (!touchMoved && e.changedTouches.length === 1) {
+    const t = e.changedTouches[0];
+    inspectTile(t.clientX, t.clientY);
+  }
+  prevTouches = [];
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+updateUI();
+fitView();
+</script>
+</body>
+</html>
