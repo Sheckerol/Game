@@ -78,15 +78,6 @@ const fogDebugMethods = {
     const tileR = Math.floor(this.player.y / TILE);
     const tileC = Math.floor(this.player.x / TILE);
 
-    this.debugGfx.fillStyle(0x00ff00, 0.25);
-    for (let r = 0; r < MAP_ROWS; r++) {
-      for (let c = 0; c < MAP_COLS; c++) {
-        if (this.playerFog.visGrid[r][c]) {
-          this.debugGfx.fillRect(c * TILE + 1, r * TILE + 1, TILE - 2, TILE - 2);
-        }
-      }
-    }
-
     this.debugGfx.lineStyle(2, 0xffffff, 1);
     this.debugGfx.strokeRect(tileC * TILE, tileR * TILE, TILE, TILE);
 
@@ -262,28 +253,30 @@ const fogDebugMethods = {
   },
 
   _computeUnionFogBoxes() {
-    const whiteRoomCandidates = this._collectWhiteRoomCandidates().filter(c => c.flagged);
-    const highlights = this._findWhiteRoomCauseHighlights(whiteRoomCandidates);
     const boxes = [];
     const keys = new Set();
-
-    for (const highlight of highlights) {
-      for (const unionRect of this._buildUnionRectsFromOverlap(highlight.room, highlight.corridor)) {
-        if (unionRect.w <= 0 || unionRect.h <= 0) continue;
-        const key = `${unionRect.x},${unionRect.y},${unionRect.w},${unionRect.h}`;
-        if (keys.has(key)) continue;
-        keys.add(key);
-        boxes.push(unionRect);
-      }
-    }
-
-    for (const unionRect of this._computeCorridorUnionFogBoxes()) {
-      if (unionRect.w <= 0 || unionRect.h <= 0) continue;
-      const key = `${unionRect.x},${unionRect.y},${unionRect.w},${unionRect.h}`;
-      if (keys.has(key)) continue;
+    const add = (rect) => {
+      if (!rect || rect.w <= 0 || rect.h <= 0) return;
+      const key = `${rect.x},${rect.y},${rect.w},${rect.h}`;
+      if (keys.has(key)) return;
       keys.add(key);
-      boxes.push(unionRect);
-    }
+      boxes.push(rect);
+    };
+
+    // Case 1: room-corridor overlap — direct geometric check replaces heuristic
+    for (const room of this.debugRooms)
+      for (const corridor of (this.expandedCorridors ?? this.debugCorridors))
+        if (this._rectIntersection(room, corridor))
+          for (const r of this._buildUnionRectsFromOverlap(room, corridor)) add(r);
+
+    // Case 2: parallel corridor pairs with bounding-box overlap (existing)
+    for (const r of this._computeCorridorUnionFogBoxes()) add(r);
+
+    // Case 3: corridor adjacent to room with no wall between them
+    for (const r of this._computeAdjacentRoomCorridorBoxes()) add(r);
+
+    // Case 4: stepped parallel corridors (touching boundary, no bounding-box overlap)
+    for (const r of this._computeSteppedCorridorUnionBoxes()) add(r);
 
     return boxes;
   },
@@ -518,6 +511,92 @@ const fogDebugMethods = {
 
   _getRoomBoxesForUnion() {
     return this.allRoomBoxes ?? this.debugRooms;
+  },
+
+  // Case 3: corridor directly adjacent to a room with no wall tile between them.
+  // _rectIntersection returns null (no overlap), so Case 1 misses this.
+  _computeAdjacentRoomCorridorBoxes() {
+    const corridors = this.expandedCorridors ?? this.debugCorridors;
+    const boxes = [];
+
+    for (const room of this.debugRooms) {
+      for (const corridor of corridors) {
+        if (this._rectIntersection(room, corridor)) continue; // handled by Case 1
+
+        if (corridor.dir === 'h') {
+          const xOverlap0 = Math.max(room.x, corridor.x);
+          const xOverlap1 = Math.min(room.x + room.w, corridor.x + corridor.w);
+          if (xOverlap1 <= xOverlap0) continue;
+
+          const adjacentBelow = corridor.y === room.y + room.h;
+          const adjacentAbove = room.y === corridor.y + corridor.h;
+          if (!adjacentBelow && !adjacentAbove) continue;
+
+          boxes.push({
+            x: xOverlap0,
+            y: Math.min(room.y, corridor.y),
+            w: xOverlap1 - xOverlap0,
+            h: room.h + corridor.h,
+          });
+        } else {
+          const yOverlap0 = Math.max(room.y, corridor.y);
+          const yOverlap1 = Math.min(room.y + room.h, corridor.y + corridor.h);
+          if (yOverlap1 <= yOverlap0) continue;
+
+          const adjacentRight = corridor.x === room.x + room.w;
+          const adjacentLeft  = room.x === corridor.x + corridor.w;
+          if (!adjacentRight && !adjacentLeft) continue;
+
+          boxes.push({
+            x: Math.min(room.x, corridor.x),
+            y: yOverlap0,
+            w: room.w + corridor.w,
+            h: yOverlap1 - yOverlap0,
+          });
+        }
+      }
+    }
+
+    return boxes;
+  },
+
+  // Case 4: two same-direction corridors that are stepped — they touch at a
+  // boundary edge with overlapping cross-axis ranges but no bounding-box
+  // intersection.  _corridorOverlapOrTouchBand detects the touch; we turn it
+  // into a union zone spanning the full extent of both corridors in the band.
+  _computeSteppedCorridorUnionBoxes() {
+    const corridors = this.expandedCorridors ?? this.debugCorridors;
+    const boxes = [];
+
+    for (let i = 0; i < corridors.length; i++) {
+      for (let j = i + 1; j < corridors.length; j++) {
+        const a = corridors[i];
+        const b = corridors[j];
+        if (a.dir !== b.dir) continue;
+        if (this._rectIntersection(a, b)) continue; // handled by Case 2
+
+        const band = this._corridorOverlapOrTouchBand(a, b);
+        if (!band) continue;
+
+        if (a.dir === 'h') {
+          boxes.push({
+            x: band.x,
+            y: Math.min(a.y, b.y),
+            w: band.w,
+            h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
+          });
+        } else {
+          boxes.push({
+            x: Math.min(a.x, b.x),
+            y: band.y,
+            w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x),
+            h: band.h,
+          });
+        }
+      }
+    }
+
+    return boxes;
   },
 };
 
