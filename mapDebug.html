@@ -50,6 +50,7 @@
   <button id="btnNext">▶</button>
   <span id="stepName"></span>
   <button id="btnFit">Fit</button>
+  <button id="btnJump">⚠ Jump</button>
 </div>
 <div id="info">Tap a tile to inspect</div>
 <div id="canvas-wrap">
@@ -86,34 +87,48 @@ scene.debugRooms        = debugRooms;
 scene.expandedCorridors = expandedCorridors;
 // allRoomBoxes intentionally unset → _getRoomBoxesForUnion returns debugRooms
 
-// Case 1: room × corridor overlap unions
+// Helper: collect wall tiles inside a box
+function wallsIn(b) {
+  const walls = [];
+  for (let r = b.y; r < b.y + b.h; r++)
+    for (let c = b.x; c < b.x + b.w; c++)
+      if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && grid[r][c] === 1)
+        walls.push([c, r]);
+  return walls;
+}
+
+// Case 1: room × corridor overlap unions — tracked per sub-method
 const case1 = [];
 {
   const keys = new Set();
+  const addTagged = (r, subType, room, corridor) => {
+    if (!r || r.w <= 0 || r.h <= 0) return;
+    const k = `${r.x},${r.y},${r.w},${r.h}`;
+    if (keys.has(k)) return;
+    keys.add(k);
+    case1.push({ ...r, _case: 1, _sub: subType, _room: room, _corr: corridor, _walls: wallsIn(r) });
+  };
   for (const room of debugRooms) {
     for (const corridor of expandedCorridors) {
-      if (!scene._rectIntersection(room, corridor)) continue;
-      for (const r of scene._buildUnionRectsFromOverlap(room, corridor)) {
-        if (!r || r.w <= 0 || r.h <= 0) continue;
-        const k = `${r.x},${r.y},${r.w},${r.h}`;
-        if (keys.has(k)) continue;
-        keys.add(k);
-        case1.push({ ...r, _case: 1 });
-      }
+      const overlap = scene._rectIntersection(room, corridor);
+      if (!overlap) continue;
+      addTagged(scene._buildParallelUnionRect(room, corridor),             'parallel', room, corridor);
+      addTagged(scene._buildPerpendicularUnionRect(room, corridor, overlap),'perp',     room, corridor);
     }
   }
 }
 
 // Case 2: parallel corridor pairs with bounding-box overlap
-const case2 = scene._computeCorridorUnionFogBoxes().map(b => ({ ...b, _case: 2 }));
+const case2 = scene._computeCorridorUnionFogBoxes().map(b => ({ ...b, _case: 2, _walls: wallsIn(b) }));
 
 // Case 3: corridor adjacent to room (no wall between them)
-const case3 = scene._computeAdjacentRoomCorridorBoxes().map(b => ({ ...b, _case: 3 }));
+const case3 = scene._computeAdjacentRoomCorridorBoxes().map(b => ({ ...b, _case: 3, _walls: wallsIn(b) }));
 
 // Case 4: stepped parallel corridors touching at boundary
-const case4 = scene._computeSteppedCorridorUnionBoxes().map(b => ({ ...b, _case: 4 }));
+const case4 = scene._computeSteppedCorridorUnionBoxes().map(b => ({ ...b, _case: 4, _walls: wallsIn(b) }));
 
 const unionBoxes = [...case1, ...case2, ...case3, ...case4];
+const badUnionBoxes = unionBoxes.filter(b => b._walls?.length > 0);
 
 // ── Fog box layers ────────────────────────────────────────────────────────
 const roomFogBoxes     = debugRooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
@@ -138,25 +153,16 @@ function prune(boxes) {
 }
 const finalBoxes = prune(allBoxes);
 
-// ── Sanity check: flag union boxes that contain wall tiles ────────────────
-const wallInUnion = unionBoxes.filter(b => {
-  for (let r = b.y; r < b.y + b.h; r++)
-    for (let c = b.x; c < b.x + b.w; c++)
-      if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && grid[r][c] === 1) return true;
-  return false;
-});
-if (wallInUnion.length) {
-  console.warn(`${wallInUnion.length} union box(es) contain wall tiles:`, wallInUnion);
+// ── Console report ────────────────────────────────────────────────────────
+if (badUnionBoxes.length) {
+  console.warn(`${badUnionBoxes.length} union box(es) contain wall tiles:`);
+  for (const b of badUnionBoxes) {
+    const loc = b._walls.map(([c,r]) => `[${c},${r}]`).join(' ');
+    const src = b._room ? `room{x:${b._room.x} y:${b._room.y} w:${b._room.w} h:${b._room.h}} × corr{x:${b._corr.x} y:${b._corr.y} w:${b._corr.w} h:${b._corr.h} dir:${b._corr.dir}} sub:${b._sub}` : `case${b._case}`;
+    console.warn(`  box{x:${b.x} y:${b.y} w:${b.w} h:${b.h}} — walls: ${loc} — from: ${src}`);
+  }
 }
-
-console.log(`Seed ${SEED}:`, {
-  rooms: debugRooms.length,
-  corridors: expandedCorridors.length,
-  case1: case1.length, case2: case2.length,
-  case3: case3.length, case4: case4.length,
-  wallsInsideUnion: wallInUnion.length,
-  finalBoxes: finalBoxes.length,
-});
+console.log(`Seed ${SEED}: rooms=${debugRooms.length} corridors=${expandedCorridors.length} case1=${case1.length} case2=${case2.length} case3=${case3.length} case4=${case4.length} badBoxes=${badUnionBoxes.length} finalBoxes=${finalBoxes.length}`);
 
 // ── Canvas & viewport ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -174,6 +180,18 @@ function fitView() {
   canvas.width = ww; canvas.height = wh;
   draw();
 }
+
+// Zoom into a box so it fills ~40% of the viewport
+function zoomToBox(b) {
+  const ww = wrap.clientWidth, wh = wrap.clientHeight;
+  const padTiles = 8;
+  const totalW = b.w + padTiles * 2, totalH = b.h + padTiles * 2;
+  CELL = Math.max(4, Math.min(48, Math.floor(Math.min(ww / totalW, wh / totalH) * 0.7)));
+  panX = Math.floor(ww / 2 - (b.x + b.w / 2) * CELL);
+  panY = Math.floor(wh / 2 - (b.y + b.h / 2) * CELL);
+  draw();
+}
+
 new ResizeObserver(fitView).observe(wrap);
 
 // ── Steps ─────────────────────────────────────────────────────────────────
@@ -188,9 +206,16 @@ const STEPS = [
 ];
 let step = 0;
 
-document.getElementById('btnPrev').onclick = () => { step = Math.max(0, step - 1); updateUI(); draw(); };
-document.getElementById('btnNext').onclick = () => { step = Math.min(STEPS.length - 1, step + 1); updateUI(); draw(); };
+document.getElementById('btnPrev').onclick = () => { step = Math.max(0, step - 1); updateUI(); draw(); showStepSummary(); };
+document.getElementById('btnNext').onclick = () => { step = Math.min(STEPS.length - 1, step + 1); updateUI(); draw(); showStepSummary(); };
 document.getElementById('btnFit').onclick  = fitView;
+document.getElementById('btnJump').onclick = () => {
+  if (!badUnionBoxes.length) { document.getElementById('info').textContent = 'No bad union boxes found.'; return; }
+  step = 5; updateUI();
+  const b = badUnionBoxes[0];
+  zoomToBox(b);
+  showBadBoxDetail(b);
+};
 
 function updateUI() {
   document.getElementById('stepLabel').textContent = `${step + 1}/${STEPS.length}`;
@@ -287,6 +312,15 @@ function draw() {
     strokeUnionByCase(unionBoxes, 2, 0.95, 0.2);
     // Red X on any box that contains a wall tile
     markWallBoxes(unionBoxes);
+    // Bright red dot on every wall tile that is inside a bad union box
+    for (const b of badUnionBoxes) {
+      for (const [wc, wr] of b._walls) {
+        const [px, py] = tr(wc, wr);
+        ctx.save(); ctx.fillStyle = '#ff0000';
+        ctx.beginPath(); ctx.arc(px + CELL/2, py + CELL/2, Math.max(2, CELL/3), 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+    }
   }
 
   if (step === 6) {
@@ -329,7 +363,7 @@ function renderLegend() {
     h += leg(CASE_COLORS[2], `Case 2: parallel corr (${case2.length})`, true);
     h += leg(CASE_COLORS[3], `Case 3: adjacent room (${case3.length})`, true);
     h += leg(CASE_COLORS[4], `Case 4: stepped corr (${case4.length})`, true);
-    if (wallInUnion.length) h += `<div class="leg" style="color:#f44">⚠ ${wallInUnion.length} box(es) contain walls (red X)</div>`;
+    if (badUnionBoxes.length) h += `<div class="leg" style="color:#f44">⚠ ${badUnionBoxes.length} box(es) contain walls — tap ⚠ Jump</div>`;
   }
   if (step === 6) {
     h += leg('#44ffdd','Final fog box (pruned)', true);
@@ -340,14 +374,36 @@ function renderLegend() {
   document.getElementById('legend').innerHTML = h;
 }
 
-// ── Inspect ───────────────────────────────────────────────────────────────
+// ── Inspect / info helpers ────────────────────────────────────────────────
 function inBoxes(boxes, r, c) {
   return boxes.filter(b => r >= b.y && r < b.y+b.h && c >= b.x && c < b.x+b.w);
 }
 function fmtBox(b) {
-  const caseStr = b._case ? ` case${b._case}` : '';
-  const wallFlag = (() => { for (let r=b.y;r<b.y+b.h;r++) for(let c=b.x;c<b.x+b.w;c++) if(grid[r]?.[c]===1) return ' ⚠WALL'; return ''; })();
-  return `{x:${b.x} y:${b.y} w:${b.w} h:${b.h}${caseStr}${wallFlag}}`;
+  const caseTag = b._case  ? ` case${b._case}${b._sub ? ':'+b._sub : ''}` : '';
+  const wallTag = b._walls?.length ? ` ⚠${b._walls.length}walls` : '';
+  return `{x:${b.x} y:${b.y} w:${b.w} h:${b.h}${caseTag}${wallTag}}`;
+}
+function fmtSource(b) {
+  if (!b._room) return '';
+  const r = b._room, c = b._corr;
+  return `  room: {x:${r.x} y:${r.y} w:${r.w} h:${r.h}}\n  corr: {x:${c.x} y:${c.y} w:${c.w} h:${c.h} dir:${c.dir}}\n  sub-method: ${b._sub}`;
+}
+
+function showBadBoxDetail(b) {
+  const walls = b._walls?.map(([c,r]) => `[${c},${r}]`).join(' ') ?? '';
+  let msg = `BAD BOX: ${fmtBox(b)}`;
+  if (walls) msg += `\n  wall tiles: ${walls}`;
+  const src = fmtSource(b);
+  if (src) msg += '\n' + src;
+  document.getElementById('info').textContent = msg;
+}
+
+function showStepSummary() {
+  if (step === 5 && badUnionBoxes.length) {
+    showBadBoxDetail(badUnionBoxes[0]);
+  } else {
+    document.getElementById('info').textContent = 'Tap a tile to inspect';
+  }
 }
 
 function inspectTile(sx, sy) {
@@ -371,8 +427,14 @@ function inspectTile(sx, sy) {
   }
   if (step === 5) {
     const hits = inBoxes(unionBoxes, r, c);
-    if (hits.length) msg += '\n' + hits.map(fmtBox).join('\n');
-    else msg += '\n(no union zones here)';
+    if (hits.length) {
+      msg += '\n' + hits.map(b => {
+        let s = fmtBox(b);
+        const src = fmtSource(b);
+        if (src) s += '\n' + src;
+        return s;
+      }).join('\n---\n');
+    } else msg += '\n(no union zones here)';
   }
   if (step === 6) {
     const hits = inBoxes(finalBoxes, r, c);
@@ -454,6 +516,7 @@ canvas.addEventListener('touchend', e => {
 // ── Init ──────────────────────────────────────────────────────────────────
 updateUI();
 fitView();
+showStepSummary();
 </script>
 </body>
 </html>
