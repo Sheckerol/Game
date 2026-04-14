@@ -36,7 +36,7 @@ const setupMethods = {
   },
 
   _setupMap() {
-    this.mapSeed = 1840789024;
+    this.mapSeed = 469139532;
     console.log(`[MapSeed] ${this.mapSeed}`);
     const rng = mulberry32(this.mapSeed);
     const { grid, roomGrid, rooms, corridors, playerStart, enemyStart, debugRooms, debugCorridors } = generateMap({ rng });
@@ -368,7 +368,7 @@ const setupMethods = {
   },
 
   _toggleDebugMode() {
-    this.debugMode = (this.debugMode + 1) % 3;
+    this.debugMode = (this.debugMode + 1) % 2;
     if (this.debugMode === 0) this.debugGfx.clear();
     else this._drawDebug();
   },

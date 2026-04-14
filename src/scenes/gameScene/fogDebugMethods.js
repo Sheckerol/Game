@@ -27,9 +27,9 @@ const fogDebugMethods = {
   },
 
   _revealBoxesAt(tileR, tileC, visGrid) {
-    for (const box of this.fogBoxes) {
-      if (tileR >= box.y && tileR < box.y + box.h && tileC >= box.x && tileC < box.x + box.w) {
-        this._revealBox(box, visGrid);
+    for (const b of this.fogBoxes) {
+      if (tileR >= b.y && tileR < b.y + b.h && tileC >= b.x && tileC < b.x + b.w) {
+        this._revealBox(b, visGrid);
       }
     }
   },
@@ -81,175 +81,18 @@ const fogDebugMethods = {
     this.debugGfx.lineStyle(2, 0xffffff, 1);
     this.debugGfx.strokeRect(tileC * TILE, tileR * TILE, TILE, TILE);
 
-    if (this.debugMode === 1) {
-      const BOX_COLORS = [
-        0xff4444, 0xffff44, 0x44ff44, 0x44ffff,
-        0x4444ff, 0xff44ff, 0xff8844, 0x44ff88,
-        0x88ff44, 0xff4488, 0x8844ff, 0x44ffdd,
-      ];
-      for (let i = 0; i < this.fogBoxes.length; i++) {
-        const box = this.fogBoxes[i];
-        const color = BOX_COLORS[i % BOX_COLORS.length];
-        const inBox = tileR >= box.y && tileR < box.y + box.h && tileC >= box.x && tileC < box.x + box.w;
-        this.debugGfx.lineStyle(inBox ? 3 : 1, color, inBox ? 1.0 : 0.5);
-        this.debugGfx.strokeRect(box.x * TILE, box.y * TILE, box.w * TILE, box.h * TILE);
-      }
-      return;
+    const BOX_COLORS = [
+      0xff4444, 0xffff44, 0x44ff44, 0x44ffff,
+      0x4444ff, 0xff44ff, 0xff8844, 0x44ff88,
+      0x88ff44, 0xff4488, 0x8844ff, 0x44ffdd,
+    ];
+    for (let i = 0; i < this.fogBoxes.length; i++) {
+      const box = this.fogBoxes[i];
+      const color = BOX_COLORS[i % BOX_COLORS.length];
+      const inBox = tileR >= box.y && tileR < box.y + box.h && tileC >= box.x && tileC < box.x + box.w;
+      this.debugGfx.lineStyle(inBox ? 3 : 1, color, inBox ? 1.0 : 0.5);
+      this.debugGfx.strokeRect(box.x * TILE, box.y * TILE, box.w * TILE, box.h * TILE);
     }
-
-    const whiteRoomCandidates = this._collectWhiteRoomCandidates();
-    for (const candidate of whiteRoomCandidates) {
-      const roomColor = candidate.flagged ? 0xffff00 : 0xff8800;
-      this.debugGfx.lineStyle(2, roomColor, 0.85);
-      this.debugGfx.strokeRect(
-        candidate.room.x * TILE,
-        candidate.room.y * TILE,
-        candidate.room.w * TILE,
-        candidate.room.h * TILE
-      );
-    }
-
-    this.debugGfx.lineStyle(2, 0x00ffff, 0.85);
-    for (const s of this.debugCorridors) {
-      if (s.dir === 'h') this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
-    }
-
-    this.debugGfx.lineStyle(2, 0xff44ff, 0.85);
-    for (const s of this.debugCorridors) {
-      if (s.dir === 'v') this.debugGfx.strokeRect(s.x * TILE, s.y * TILE, s.w * TILE, s.h * TILE);
-    }
-
-    // Highlight parallel corridors that are side-by-side (touching) in white.
-    this.debugGfx.lineStyle(2, 0xffffff, 1);
-    for (const corridor of this._findSideBySideCorridors(this.expandedCorridors ?? this.debugCorridors)) {
-      this.debugGfx.strokeRect(corridor.x * TILE, corridor.y * TILE, corridor.w * TILE, corridor.h * TILE);
-    }
-
-    this.debugGfx.fillStyle(0x00ff66, 0.35);
-    this.debugGfx.lineStyle(2, 0x00ff66, 1);
-    const highlights = this._findWhiteRoomCauseHighlights(whiteRoomCandidates);
-    for (const highlight of highlights) {
-      if (highlight.overlap) {
-        this.debugGfx.fillRect(
-          highlight.overlap.x * TILE + 1,
-          highlight.overlap.y * TILE + 1,
-          highlight.overlap.w * TILE - 2,
-          highlight.overlap.h * TILE - 2
-        );
-        this.debugGfx.strokeRect(
-          highlight.overlap.x * TILE,
-          highlight.overlap.y * TILE,
-          highlight.overlap.w * TILE,
-          highlight.overlap.h * TILE
-        );
-      }
-      this.debugGfx.strokeRect(
-        highlight.corridor.x * TILE,
-        highlight.corridor.y * TILE,
-        highlight.corridor.w * TILE,
-        highlight.corridor.h * TILE
-      );
-    }
-
-    const whiteUnionKeys = new Set();
-    for (const highlight of highlights) {
-      for (const unionRect of this._buildUnionRectsFromOverlap(highlight.room, highlight.corridor)) {
-        whiteUnionKeys.add(`${unionRect.x},${unionRect.y},${unionRect.w},${unionRect.h}`);
-      }
-    }
-    for (const unionRect of this._computeCorridorUnionFogBoxes()) {
-      whiteUnionKeys.add(`${unionRect.x},${unionRect.y},${unionRect.w},${unionRect.h}`);
-    }
-    const unionPalette = [0xffffff, 0xff66aa, 0x66ddff, 0xffdd66, 0x99ff99, 0xcc99ff];
-    let unionColorIdx = 0;
-    for (const key of whiteUnionKeys) {
-      const [x, y, w, h] = key.split(',').map(Number);
-      this.debugGfx.lineStyle(2, unionPalette[unionColorIdx % unionPalette.length], 0.95);
-      this.debugGfx.strokeRect(x * TILE, y * TILE, w * TILE, h * TILE);
-      unionColorIdx++;
-    }
-  },
-
-  _findWhiteRoomCauseHighlights(whiteRooms) {
-    const highlights = [];
-    for (const whiteRoom of whiteRooms) {
-      let bestHCorridor = null;
-      let bestHScore = 0;
-      let bestVCorridor = null;
-      let bestVScore = 0;
-
-      for (const corridor of this.debugCorridors) {
-        const touchScore = this._parallelTouchOverlapScore(whiteRoom.room, corridor);
-        let score = touchScore * 1000;
-        for (const tile of whiteRoom.triggerTiles) {
-          if (this._rectContainsTile(corridor, tile.r, tile.c)) score++;
-        }
-        if (corridor.dir === 'h' && score > bestHScore) {
-          bestHScore = score;
-          bestHCorridor = corridor;
-        }
-        if (corridor.dir === 'v' && score > bestVScore) {
-          bestVScore = score;
-          bestVCorridor = corridor;
-        }
-      }
-
-      if (bestHCorridor && bestHScore > 0) {
-        highlights.push({
-          room: whiteRoom.room,
-          corridor: bestHCorridor,
-          overlap: this._rectIntersection(whiteRoom.room, bestHCorridor),
-        });
-      }
-
-      if (bestVCorridor && bestVScore > 0 && bestVCorridor !== bestHCorridor) {
-        highlights.push({
-          room: whiteRoom.room,
-          corridor: bestVCorridor,
-          overlap: this._rectIntersection(whiteRoom.room, bestVCorridor),
-        });
-      }
-    }
-    return highlights;
-  },
-
-  _collectWhiteRoomCandidates() {
-    const g = this.mapGrid;
-    const flr = (r, c) => r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && g[r][c] === 0;
-    const candidates = [];
-
-    for (const rm of this.debugRooms) {
-      const { x: rx, y: ry, w: rw, h: rh } = rm;
-      const TL_l = flr(ry, rx - 1);
-      const TL_t = flr(ry - 1, rx);
-      const TR_t = flr(ry - 1, rx + rw - 1);
-      const TR_r = flr(ry, rx + rw);
-      const BL_l = flr(ry + rh - 1, rx - 1);
-      const BL_b = flr(ry + rh, rx);
-      const BR_r = flr(ry + rh - 1, rx + rw);
-      const BR_b = flr(ry + rh, rx + rw - 1);
-
-      const cornerHit = (TL_l && TL_t) || (TR_t && TR_r) || (BL_l && BL_b) || (BR_r && BR_b);
-      const sideHit = (TL_l && BL_l) || (TL_t && TR_t) || (TR_r && BR_r) || (BL_b && BR_b);
-      const parallelTouchHit = this.debugCorridors.some(c => this._parallelTouchOverlapScore(rm, c) > 0);
-      const flagged = cornerHit || sideHit || parallelTouchHit;
-
-      const triggerTiles = [];
-      if (flagged) {
-        if (TL_l) triggerTiles.push({ r: ry, c: rx - 1 });
-        if (TL_t) triggerTiles.push({ r: ry - 1, c: rx });
-        if (TR_t) triggerTiles.push({ r: ry - 1, c: rx + rw - 1 });
-        if (TR_r) triggerTiles.push({ r: ry, c: rx + rw });
-        if (BL_l) triggerTiles.push({ r: ry + rh - 1, c: rx - 1 });
-        if (BL_b) triggerTiles.push({ r: ry + rh, c: rx });
-        if (BR_r) triggerTiles.push({ r: ry + rh - 1, c: rx + rw });
-        if (BR_b) triggerTiles.push({ r: ry + rh, c: rx + rw - 1 });
-      }
-
-      candidates.push({ room: rm, flagged, triggerTiles });
-    }
-
-    return candidates;
   },
 
   _computeUnionFogBoxes() {
@@ -277,6 +120,25 @@ const fogDebugMethods = {
 
     // Case 4: stepped parallel corridors (touching boundary, no bounding-box overlap)
     for (const r of this._computeSteppedCorridorUnionBoxes()) add(r);
+
+    // Expansion pass: treat each union box as a room and check it against every
+    // corridor it overlaps or touches.  New union boxes may themselves overlap
+    // further corridors, so repeat until no new boxes are added.
+    const allCorridors = this.expandedCorridors ?? this.debugCorridors;
+    let prevCount;
+    do {
+      prevCount = boxes.length;
+      for (const ubox of [...boxes]) {
+        for (const corr of allCorridors) {
+          if (this._rectIntersection(ubox, corr)) {
+            for (const r of this._buildUnionRectsFromOverlap(ubox, corr)) add(r);
+          } else {
+            const r = this._buildAdjacentRect(ubox, corr);
+            if (r) add(r);
+          }
+        }
+      }
+    } while (boxes.length > prevCount);
 
     return boxes;
   },
@@ -329,27 +191,6 @@ const fogDebugMethods = {
     return null;
   },
 
-  _findSideBySideCorridors(corridors) {
-    const keys = new Set();
-    for (let i = 0; i < corridors.length; i++) {
-      for (let j = i + 1; j < corridors.length; j++) {
-        const a = corridors[i];
-        const b = corridors[j];
-        if (a.dir !== b.dir) continue;
-        if (this._rectIntersection(a, b)) continue; // overlapping is not side-by-side
-        const touchBand = this._corridorOverlapOrTouchBand(a, b);
-        if (!touchBand) continue;
-        keys.add(`${a.x},${a.y},${a.w},${a.h}`);
-        keys.add(`${b.x},${b.y},${b.w},${b.h}`);
-      }
-    }
-
-    return Array.from(keys, key => {
-      const [x, y, w, h] = key.split(',').map(Number);
-      return { x, y, w, h };
-    });
-  },
-
   _buildParallelCorridorUnionRect(a, b, overlap) {
     if (a.dir === 'h') {
       const y0 = overlap.y;
@@ -379,10 +220,6 @@ const fogDebugMethods = {
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   },
 
-  _rectContainsTile(rect, row, col) {
-    return col >= rect.x && col < rect.x + rect.w && row >= rect.y && row < rect.y + rect.h;
-  },
-
   _buildUnionRectsFromOverlap(room, corridor) {
     const overlap = this._rectIntersection(room, corridor);
     const parallel = this._buildParallelUnionRect(room, corridor);
@@ -402,8 +239,10 @@ const fogDebugMethods = {
 
       for (const otherRoom of roomBoxes) {
         const overlapsCorridorX = otherRoom.x < corridor.x + corridor.w && otherRoom.x + otherRoom.w > corridor.x;
-        const overlapsBandY = otherRoom.y < bandY1 && otherRoom.y + otherRoom.h > bandY0;
-        if (!overlapsCorridorX || !overlapsBandY) continue;
+        // Must *fully cover* the band height — overlapping is not enough, it would include
+        // tiles where the other room doesn't reach and those tiles may be walls.
+        const coversBandY = otherRoom.y <= bandY0 && otherRoom.y + otherRoom.h >= bandY1;
+        if (!overlapsCorridorX || !coversBandY) continue;
         x0 = Math.min(x0, otherRoom.x);
         x1 = Math.max(x1, otherRoom.x + otherRoom.w);
       }
@@ -418,9 +257,10 @@ const fogDebugMethods = {
     let y1 = Math.max(room.y + room.h, corridor.y + corridor.h);
 
     for (const otherRoom of roomBoxes) {
-      const overlapsBandX = otherRoom.x < bandX1 && otherRoom.x + otherRoom.w > bandX0;
+      // Must fully cover the band width
+      const coversBandX = otherRoom.x <= bandX0 && otherRoom.x + otherRoom.w >= bandX1;
       const overlapsCorridorY = otherRoom.y < corridor.y + corridor.h && otherRoom.y + otherRoom.h > corridor.y;
-      if (!overlapsBandX || !overlapsCorridorY) continue;
+      if (!coversBandX || !overlapsCorridorY) continue;
       y0 = Math.min(y0, otherRoom.y);
       y1 = Math.max(y1, otherRoom.y + otherRoom.h);
     }
@@ -438,9 +278,10 @@ const fogDebugMethods = {
       let y1 = Math.max(room.y + room.h, corridor.y + corridor.h);
 
       for (const otherRoom of roomBoxes) {
-        const overlapsBandX = otherRoom.x < bandX1 && otherRoom.x + otherRoom.w > bandX0;
+        // Must fully cover the band width so no wall tiles are included
+        const coversBandX = otherRoom.x <= bandX0 && otherRoom.x + otherRoom.w >= bandX1;
         const overlapsCorridorY = otherRoom.y < corridor.y + corridor.h && otherRoom.y + otherRoom.h > corridor.y;
-        if (!overlapsBandX || !overlapsCorridorY) continue;
+        if (!coversBandX || !overlapsCorridorY) continue;
         y0 = Math.min(y0, otherRoom.y);
         y1 = Math.max(y1, otherRoom.y + otherRoom.h);
       }
@@ -453,9 +294,10 @@ const fogDebugMethods = {
     let x1 = Math.max(room.x + room.w, corridor.x + corridor.w);
 
     for (const otherRoom of roomBoxes) {
-      const overlapsBandY = otherRoom.y < bandY1 && otherRoom.y + otherRoom.h > bandY0;
+      // Must fully cover the band height
+      const coversBandY = otherRoom.y <= bandY0 && otherRoom.y + otherRoom.h >= bandY1;
       const overlapsCorridorX = otherRoom.x < corridor.x + corridor.w && otherRoom.x + otherRoom.w > corridor.x;
-      if (!overlapsBandY || !overlapsCorridorX) continue;
+      if (!coversBandY || !overlapsCorridorX) continue;
       x0 = Math.min(x0, otherRoom.x);
       x1 = Math.max(x1, otherRoom.x + otherRoom.w);
     }
@@ -466,27 +308,6 @@ const fogDebugMethods = {
     const parallel = this._buildParallelCorridorUnionRect(a, b, overlap);
     const perpendicular = this._buildPerpendicularCorridorUnionRect(a, b, overlap);
     return perpendicular ? [parallel, perpendicular] : [parallel];
-  },
-
-  _parallelTouchOverlapScore(room, corridor) {
-    const overlapLen = corridor.dir === 'h'
-      ? this._segmentOverlap(room.x, room.x + room.w, corridor.x, corridor.x + corridor.w)
-      : this._segmentOverlap(room.y, room.y + room.h, corridor.y, corridor.y + corridor.h);
-    if (overlapLen <= 0) return 0;
-
-    if (corridor.dir === 'h') {
-      const touchesTop = corridor.y + corridor.h === room.y;
-      const touchesBottom = corridor.y === room.y + room.h;
-      return (touchesTop || touchesBottom) ? overlapLen : 0;
-    }
-
-    const touchesLeft = corridor.x + corridor.w === room.x;
-    const touchesRight = corridor.x === room.x + room.w;
-    return (touchesLeft || touchesRight) ? overlapLen : 0;
-  },
-
-  _segmentOverlap(a0, a1, b0, b1) {
-    return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
   },
 
   _buildPerpendicularCorridorUnionRect(a, b, overlap) {
@@ -558,6 +379,28 @@ const fogDebugMethods = {
     }
 
     return boxes;
+  },
+
+  // Returns a combined rect if box and corr are directly adjacent (no wall between),
+  // or null if they don't share an edge with overlapping cross-axis ranges.
+  _buildAdjacentRect(box, corr) {
+    if (corr.dir === 'h') {
+      const xOverlap0 = Math.max(box.x, corr.x);
+      const xOverlap1 = Math.min(box.x + box.w, corr.x + corr.w);
+      if (xOverlap1 <= xOverlap0) return null;
+      const below = corr.y === box.y + box.h;
+      const above = box.y === corr.y + corr.h;
+      if (!below && !above) return null;
+      return { x: xOverlap0, y: Math.min(box.y, corr.y), w: xOverlap1 - xOverlap0, h: box.h + corr.h };
+    } else {
+      const yOverlap0 = Math.max(box.y, corr.y);
+      const yOverlap1 = Math.min(box.y + box.h, corr.y + corr.h);
+      if (yOverlap1 <= yOverlap0) return null;
+      const right = corr.x === box.x + box.w;
+      const left  = box.x === corr.x + corr.w;
+      if (!right && !left) return null;
+      return { x: Math.min(box.x, corr.x), y: yOverlap0, w: box.w + corr.w, h: yOverlap1 - yOverlap0 };
+    }
   },
 
   // Case 4: two same-direction corridors that are stepped — they touch at a
