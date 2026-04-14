@@ -48,7 +48,7 @@ const setupMethods = {
     this.debugRooms = debugRooms;
     this.debugCorridors = debugCorridors;
 
-    expandCorridors(corridors, grid);
+    expandCorridors(corridors, grid, roomGrid);
     this.expandedCorridors = corridors.map(c => ({ ...c }));
     this.fogBoxes = [...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), ...corridors];
     this.unionFogBoxes = this._computeUnionFogBoxes();
