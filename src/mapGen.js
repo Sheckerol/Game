@@ -107,54 +107,24 @@ export function generateMap({ rng }) {
  * @param {Array} corridors  Array of corridor rects (from generateMap)
  * @param {number[][]} grid  The tile grid (0 = floor, 1 = wall)
  */
-export function expandCorridors(corridors, grid, roomGrid) {
+export function expandCorridors(corridors, grid) {
   for (const seg of corridors) {
     if (seg.dir === 'h') {
       while (seg.x > 0
              && grid[seg.y    ][seg.x - 1] === 0
-             && grid[seg.y + 1][seg.x - 1] === 0) {
-        const x = seg.x - 1;
-        const inRoom = roomGrid[seg.y][x] !== -1 || roomGrid[seg.y + 1][x] !== -1;
-        if (!inRoom && (
-          (seg.y > 0            && grid[seg.y - 1][x] === 0) ||
-          (seg.y + 2 < MAP_ROWS && grid[seg.y + 2][x] === 0)
-        )) break;
-        seg.x--; seg.w++;
-      }
+             && grid[seg.y + 1][seg.x - 1] === 0) { seg.x--; seg.w++; }
       let xEnd = seg.x + seg.w;
       while (xEnd < MAP_COLS
              && grid[seg.y    ][xEnd] === 0
-             && grid[seg.y + 1][xEnd] === 0) {
-        const inRoom = roomGrid[seg.y][xEnd] !== -1 || roomGrid[seg.y + 1][xEnd] !== -1;
-        if (!inRoom && (
-          (seg.y > 0            && grid[seg.y - 1][xEnd] === 0) ||
-          (seg.y + 2 < MAP_ROWS && grid[seg.y + 2][xEnd] === 0)
-        )) break;
-        seg.w++; xEnd++;
-      }
+             && grid[seg.y + 1][xEnd] === 0) { seg.w++; xEnd++; }
     } else {
       while (seg.y > 0
              && grid[seg.y - 1][seg.x    ] === 0
-             && grid[seg.y - 1][seg.x + 1] === 0) {
-        const y = seg.y - 1;
-        const inRoom = roomGrid[y][seg.x] !== -1 || roomGrid[y][seg.x + 1] !== -1;
-        if (!inRoom && (
-          (seg.x > 0            && grid[y][seg.x - 1] === 0) ||
-          (seg.x + 2 < MAP_COLS && grid[y][seg.x + 2] === 0)
-        )) break;
-        seg.y--; seg.h++;
-      }
+             && grid[seg.y - 1][seg.x + 1] === 0) { seg.y--; seg.h++; }
       let yEnd = seg.y + seg.h;
       while (yEnd < MAP_ROWS
              && grid[yEnd][seg.x    ] === 0
-             && grid[yEnd][seg.x + 1] === 0) {
-        const inRoom = roomGrid[yEnd][seg.x] !== -1 || roomGrid[yEnd][seg.x + 1] !== -1;
-        if (!inRoom && (
-          (seg.x > 0            && grid[yEnd][seg.x - 1] === 0) ||
-          (seg.x + 2 < MAP_COLS && grid[yEnd][seg.x + 2] === 0)
-        )) break;
-        seg.h++; yEnd++;
-      }
+             && grid[yEnd][seg.x + 1] === 0) { seg.h++; yEnd++; }
     }
   }
 }

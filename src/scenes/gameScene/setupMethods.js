@@ -48,12 +48,12 @@ const setupMethods = {
     this.debugRooms = debugRooms;
     this.debugCorridors = debugCorridors;
 
-    expandCorridors(corridors, grid, roomGrid);
+    expandCorridors(corridors, grid);
     this.expandedCorridors = corridors.map(c => ({ ...c }));
     this.fogBoxes = [...rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), ...corridors];
     this.unionFogBoxes = this._computeUnionFogBoxes();
     this.fogBoxes.push(...this.unionFogBoxes);
-    this.fogBoxes = this._pruneFullyOverlappedBoxes(this.fogBoxes);
+    // this.fogBoxes = this._pruneFullyOverlappedBoxes(this.fogBoxes);
 
     this.unionRooms = this.unionFogBoxes.map((box, i) => ({
       x: box.x,
