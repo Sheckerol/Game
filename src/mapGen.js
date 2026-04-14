@@ -126,5 +126,17 @@ export function expandCorridors(corridors, grid) {
              && grid[yEnd][seg.x    ] === 0
              && grid[yEnd][seg.x + 1] === 0) { seg.h++; yEnd++; }
     }
+
+    // Validate: every tile inside the expanded bounds must be floor
+    for (let r = seg.y; r < seg.y + seg.h; r++) {
+      for (let c = seg.x; c < seg.x + seg.w; c++) {
+        if (grid[r][c] !== 0) {
+          throw new Error(
+            `Wall tile at (r=${r}, c=${c}) inside expanded ${seg.dir} corridor ` +
+            `{ x:${seg.x}, y:${seg.y}, w:${seg.w}, h:${seg.h} }`
+          );
+        }
+      }
+    }
   }
 }
