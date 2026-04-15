@@ -365,7 +365,9 @@ const setupMethods = {
 
     this.input.keyboard.on('keydown-P', () => this._toggleDebugMode());
 
+    this._fogDirty = false;
     this._updateFog(this.player.x, this.player.y, this.playerFog);
+    this._redrawFog();
   },
 
   _toggleDebugMode() {

@@ -19,6 +19,7 @@ const fogDebugMethods = {
 
     this._revealBoxesAt(tileR, tileC, fogState.visGrid);
 
+    const now = performance.now();
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         if (fogState.visGrid[r][c] && !oldVis[r][c]) {
@@ -28,7 +29,7 @@ const fogDebugMethods = {
             this.fogAnimations.set(key, {
               r, c,
               delay: dist * 1000,
-              elapsed: 0,
+              startTime: now,
               duration: 250,
               alpha: fogState.fogGrid[r][c] ? 0.65 : 1,
             });
@@ -38,26 +39,29 @@ const fogDebugMethods = {
       }
     }
 
-    console.log('[FOG] Created', this.fogAnimations.size, 'animations');
-    this._redrawFog();
+    this._fogDirty = true;
   },
 
-  _updateFogAnimations(delta) {
-    if (this.fogAnimations.size === 0) return;
-
-    let anyActive = false;
-    for (const [, anim] of this.fogAnimations) {
-      anim.elapsed += delta;
-      if (anim.elapsed - anim.delay < anim.duration) {
-        anyActive = true;
-      }
-    }
+  _tickFog() {
+    if (!this._fogDirty && this.fogAnimations.size === 0) return;
+    this._fogDirty = false;
 
     this._redrawFog();
 
-    if (!anyActive) {
-      console.log('[FOG] All animations complete, clearing');
-      this.fogAnimations.clear();
+    // Clean up completed animations
+    if (this.fogAnimations.size > 0) {
+      const now = performance.now();
+      const toDelete = [];
+      let anyActive = false;
+      for (const [key, anim] of this.fogAnimations) {
+        if (now - anim.startTime - anim.delay >= anim.duration) {
+          toDelete.push(key);
+        } else {
+          anyActive = true;
+        }
+      }
+      for (const key of toDelete) this.fogAnimations.delete(key);
+      if (!anyActive) this.fogAnimations.clear();
     }
   },
 
@@ -103,8 +107,10 @@ const fogDebugMethods = {
       }
     }
 
+    const now = performance.now();
     for (const [, anim] of this.fogAnimations) {
-      const t = Math.max(0, anim.elapsed - anim.delay);
+      const elapsed = now - anim.startTime;
+      const t = Math.max(0, elapsed - anim.delay);
       if (t >= anim.duration) continue;
       const progress = t / anim.duration;
       const eased = 1 - (1 - progress) * (1 - progress);
