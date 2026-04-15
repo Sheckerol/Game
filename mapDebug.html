@@ -58,7 +58,7 @@
   <button id="btnJump">⚠ Jump</button>
   <span style="color:#555">|</span>
   <label style="font-size:12px;color:#888">Seed:</label>
-  <input id="seedInput" type="text" value="3556611112" />
+  <input id="seedInput" type="text" value="2762136374" />
   <button id="btnGo">Go</button>
   <button id="btnRand">Rand</button>
 </div>
@@ -83,7 +83,7 @@ function mulberry32(seed) {
 }
 
 // ── Map data (mutable — reassigned on seed change) ───────────────────────
-let currentSeed = 3556611112;
+let currentSeed = 2762136374;
 let grid, debugRooms, debugCorridors, preCorridors, expandedCorridors;
 let case1, case2, case3, case4, unionBoxes, badUnionBoxes;
 let roomFogBoxes, corridorFogBoxes, baseFogBoxes, finalBoxes;
@@ -249,7 +249,7 @@ let highlight = null;
 let selectedUnion = null;  // index into unionBoxes for intersection step
 
 // Initial build (must be after variable declarations above)
-rebuild(3556611112);
+rebuild(2762136374);
 
 function fitView() {
   const ww = wrap.clientWidth, wh = wrap.clientHeight;
