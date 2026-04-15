@@ -38,6 +38,7 @@ const fogDebugMethods = {
       }
     }
 
+    console.log('[FOG] Created', this.fogAnimations.size, 'animations');
     this._redrawFog();
   },
 
@@ -45,7 +46,7 @@ const fogDebugMethods = {
     if (this.fogAnimations.size === 0) return;
 
     let anyActive = false;
-    for (const [key, anim] of this.fogAnimations) {
+    for (const [, anim] of this.fogAnimations) {
       anim.elapsed += delta;
       if (anim.elapsed - anim.delay < anim.duration) {
         anyActive = true;
@@ -55,6 +56,7 @@ const fogDebugMethods = {
     this._redrawFog();
 
     if (!anyActive) {
+      console.log('[FOG] All animations complete, clearing');
       this.fogAnimations.clear();
     }
   },
@@ -109,7 +111,7 @@ const fogDebugMethods = {
       const scale = 1 - eased;
       const size = TILE * scale;
       const offset = (TILE - size) / 2;
-      this.fogGfx.fillStyle(0x000000, anim.alpha);
+      this.fogGfx.fillStyle(0xff0000, anim.alpha);
       this.fogGfx.fillRect(
         anim.c * TILE + offset,
         anim.r * TILE + offset,
