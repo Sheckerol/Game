@@ -27,7 +27,7 @@ const fogDebugMethods = {
           if (!this.fogAnimations.has(key)) {
             this.fogAnimations.set(key, {
               r, c,
-              delay: dist * 18,
+              delay: dist * 1000,
               elapsed: 0,
               duration: 250,
               alpha: fogState.fogGrid[r][c] ? 0.65 : 1,
