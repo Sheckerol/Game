@@ -208,13 +208,7 @@ function rebuild(seed) {
   }
   console.log(`Seed ${seed}: rooms=${debugRooms.length} corridors=${expandedCorridors.length} case1=${case1.length} case2=${case2.length} case3=${case3.length} case4=${case4.length} badBoxes=${badUnionBoxes.length} finalBoxes=${finalBoxes.length}`);
 
-  // Reset UI state
-  highlight = null;
-  selectedUnion = null;
 }
-
-// Initial build
-rebuild(469139532);
 
 // ── Canvas & viewport ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -224,6 +218,9 @@ const wrap   = document.getElementById('canvas-wrap');
 let CELL = 8, panX = 0, panY = 0;
 let highlight = null;
 let selectedUnion = null;  // index into unionBoxes for intersection step
+
+// Initial build (must be after variable declarations above)
+rebuild(469139532);
 
 function fitView() {
   const ww = wrap.clientWidth, wh = wrap.clientHeight;
