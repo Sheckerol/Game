@@ -345,6 +345,7 @@ const setupMethods = {
   _setupFogAndDebug() {
     this.playerFog = this._makeFogState();
     this.fogGfx = this.add.graphics().setDepth(5);
+    this.fogAnimations = new Map();
 
     this.debugMode = 0;
     this.debugGfx = this.add.graphics().setDepth(15);

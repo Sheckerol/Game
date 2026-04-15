@@ -15,15 +15,48 @@ const fogDebugMethods = {
     if (tileR === fogState.lastTile.r && tileC === fogState.lastTile.c) return;
     fogState.lastTile = { r: tileR, c: tileC };
 
+    const oldVis = fogState.visGrid.map(row => row.slice());
+
     this._revealBoxesAt(tileR, tileC, fogState.visGrid);
 
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
+        if (fogState.visGrid[r][c] && !oldVis[r][c]) {
+          const dist = Math.abs(r - tileR) + Math.abs(c - tileC);
+          const key = r * MAP_COLS + c;
+          if (!this.fogAnimations.has(key)) {
+            this.fogAnimations.set(key, {
+              r, c,
+              delay: dist * 18,
+              elapsed: 0,
+              duration: 250,
+              alpha: fogState.fogGrid[r][c] ? 0.65 : 1,
+            });
+          }
+        }
         if (fogState.visGrid[r][c]) fogState.fogGrid[r][c] = true;
       }
     }
 
     this._redrawFog();
+  },
+
+  _updateFogAnimations(delta) {
+    if (this.fogAnimations.size === 0) return;
+
+    let anyActive = false;
+    for (const [key, anim] of this.fogAnimations) {
+      anim.elapsed += delta;
+      if (anim.elapsed - anim.delay < anim.duration) {
+        anyActive = true;
+      }
+    }
+
+    this._redrawFog();
+
+    if (!anyActive) {
+      this.fogAnimations.clear();
+    }
   },
 
   _revealBoxesAt(tileR, tileC, visGrid) {
@@ -66,6 +99,23 @@ const fogDebugMethods = {
           this.fogGfx.fillRect(c * TILE, r * TILE, TILE, TILE);
         }
       }
+    }
+
+    for (const [, anim] of this.fogAnimations) {
+      const t = Math.max(0, anim.elapsed - anim.delay);
+      if (t >= anim.duration) continue;
+      const progress = t / anim.duration;
+      const eased = 1 - (1 - progress) * (1 - progress);
+      const scale = 1 - eased;
+      const size = TILE * scale;
+      const offset = (TILE - size) / 2;
+      this.fogGfx.fillStyle(0x000000, anim.alpha);
+      this.fogGfx.fillRect(
+        anim.c * TILE + offset,
+        anim.r * TILE + offset,
+        size,
+        size,
+      );
     }
 
     this._drawDebug();
