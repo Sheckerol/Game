@@ -40,6 +40,11 @@
     .leg { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
     .sw  { width: 16px; height: 10px; border-radius: 2px; flex-shrink: 0;
            border: 1px solid rgba(255,255,255,0.15); }
+    #seedInput {
+      width: 110px; padding: 4px 7px; background: #1a1a1a; color: #eee;
+      border: 1px solid #444; border-radius: 4px; font-family: monospace; font-size: 13px;
+    }
+    #seedInput:focus { outline: 1px solid #88aaff; }
   </style>
 </head>
 <body>
@@ -51,6 +56,11 @@
   <span id="stepName"></span>
   <button id="btnFit">Fit</button>
   <button id="btnJump">⚠ Jump</button>
+  <span style="color:#555">|</span>
+  <label style="font-size:12px;color:#888">Seed:</label>
+  <input id="seedInput" type="text" value="469139532" />
+  <button id="btnGo">Go</button>
+  <button id="btnRand">Rand</button>
 </div>
 <div id="info">Tap a tile to inspect</div>
 <div id="canvas-wrap">
