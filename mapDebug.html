@@ -145,6 +145,35 @@ function rebuild(seed) {
   case4 = scene._computeSteppedCorridorUnionBoxes().map(b => ({ ...b, _case: 4, _walls: wallsIn(b) }));
 
   unionBoxes = [...case1, ...case2, ...case3, ...case4];
+
+  // Expansion pass (mirrors _computeUnionFogBoxes lines 124-141):
+  // Treat each union box as a "room" and check against every corridor.
+  // New unions may cascade, so repeat until stable.
+  {
+    const keys = new Set(unionBoxes.map(b => `${b.x},${b.y},${b.w},${b.h}`));
+    const addExpansion = (rect) => {
+      if (!rect || rect.w <= 0 || rect.h <= 0) return;
+      const k = `${rect.x},${rect.y},${rect.w},${rect.h}`;
+      if (keys.has(k)) return;
+      keys.add(k);
+      unionBoxes.push({ ...rect, _case: 5, _walls: wallsIn(rect) });
+    };
+    let prevCount;
+    do {
+      prevCount = unionBoxes.length;
+      for (const ubox of [...unionBoxes]) {
+        for (const corr of expandedCorridors) {
+          if (scene._rectIntersection(ubox, corr)) {
+            for (const r of scene._buildUnionRectsFromOverlap(ubox, corr)) addExpansion(r);
+          } else {
+            const r = scene._buildAdjacentRect(ubox, corr);
+            if (r) addExpansion(r);
+          }
+        }
+      }
+    } while (unionBoxes.length > prevCount);
+  }
+
   badUnionBoxes = unionBoxes.filter(b => b._walls?.length > 0);
 
   // Compute room/corridor intersections for each union box
@@ -298,6 +327,7 @@ const CASE_COLORS = {
   2: '#44ffff',  // cyan     — parallel corridor pair
   3: '#ffee44',  // yellow   — adjacent room-corridor
   4: '#ff8833',  // orange   — stepped corridors
+  5: '#88ff88',  // green    — expansion pass
 };
 
 function tr(col, row, w = 1, h = 1) {
@@ -481,6 +511,8 @@ function renderLegend() {
     h += leg(CASE_COLORS[2], `Case 2: parallel corr (${case2.length})`, true);
     h += leg(CASE_COLORS[3], `Case 3: adjacent room (${case3.length})`, true);
     h += leg(CASE_COLORS[4], `Case 4: stepped corr (${case4.length})`, true);
+    const case5count = unionBoxes.filter(b => b._case === 5).length;
+    if (case5count) h += leg(CASE_COLORS[5], `Case 5: expansion (${case5count})`, true);
     if (badUnionBoxes.length) h += `<div class="leg" style="color:#f44">⚠ ${badUnionBoxes.length} box(es) contain walls — tap ⚠ Jump</div>`;
   }
   if (step === 6) {
@@ -490,6 +522,7 @@ function renderLegend() {
     h += leg(CASE_COLORS[2], 'Case 2 union', true);
     h += leg(CASE_COLORS[3], 'Case 3 union', true);
     h += leg(CASE_COLORS[4], 'Case 4 union', true);
+    h += leg(CASE_COLORS[5], 'Case 5 expansion', true);
     if (selectedUnion !== null && selectedUnion < unionBoxes.length) {
       const ub = unionBoxes[selectedUnion];
       h += `<div class="leg" style="color:#aaa">Selected: #${selectedUnion} — ${ub._intRooms.length} room(s), ${ub._intCorridors.length} corr(s)</div>`;
