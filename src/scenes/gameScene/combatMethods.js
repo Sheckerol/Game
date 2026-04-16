@@ -1,6 +1,5 @@
 ﻿import {
   ENEMY_MOVE,
-  MAP_ROWS,
   MAX_DISTANCE,
   PLAYER_HALF,
 } from './constants.js';
@@ -99,9 +98,7 @@ const combatMethods = {
     this.turnEnding = true;
     this.player.body.setVelocity(0, 0);
 
-    for (let r = 0; r < MAP_ROWS; r++) this.playerFog.visGrid[r].fill(false);
-    this.playerFog.lastTile = { r: -1, c: -1 };
-    this._updateFog(this.player.x, this.player.y, this.playerFog);
+    this._resetFogVisibility();
     this._drawRange();
     this.turnMsg.setVisible(true);
     this.time.delayedCall(800, () => {
