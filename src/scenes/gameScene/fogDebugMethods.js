@@ -75,6 +75,12 @@ const fogDebugMethods = {
     fogState.lastTile = { r: -1, c: -1 };
     this._updateFog(this.player.x, this.player.y, fogState);
 
+    // Remove clearing animations for current area — the re-reveal shouldn't
+    // cause a brief fog flash over tiles that are still visible.
+    for (const [key, anim] of this.fogAnimations) {
+      if (fogState.visGrid[anim.r][anim.c]) this.fogAnimations.delete(key);
+    }
+
     const tileR = Math.floor(this.player.y / TILE);
     const tileC = Math.floor(this.player.x / TILE);
     const now = performance.now();
