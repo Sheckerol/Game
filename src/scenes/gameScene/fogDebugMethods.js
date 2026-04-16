@@ -28,7 +28,7 @@ const fogDebugMethods = {
           if (!this.fogAnimations.has(key)) {
             this.fogAnimations.set(key, {
               r, c,
-              delay: dist * 1000,
+              delay: dist * 18,
               startTime: now,
               duration: 250,
               alpha: fogState.fogGrid[r][c] ? 0.65 : 1,
@@ -117,7 +117,7 @@ const fogDebugMethods = {
       const scale = 1 - eased;
       const size = TILE * scale;
       const offset = (TILE - size) / 2;
-      this.fogGfx.fillStyle(0xff0000, anim.alpha);
+      this.fogGfx.fillStyle(0x000000, anim.alpha);
       this.fogGfx.fillRect(
         anim.c * TILE + offset,
         anim.r * TILE + offset,
