@@ -22,7 +22,7 @@ const fogDebugMethods = {
     const now = performance.now();
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
-        if (fogState.visGrid[r][c] && !oldVis[r][c] && !fogState.fogGrid[r][c]) {
+        if (fogState.visGrid[r][c] && !oldVis[r][c]) {
           const dist = Math.abs(r - tileR) + Math.abs(c - tileC);
           const key = r * MAP_COLS + c;
           if (!this.fogAnimations.has(key)) {
