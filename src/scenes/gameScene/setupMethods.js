@@ -345,6 +345,8 @@ const setupMethods = {
   _setupFogAndDebug() {
     this.playerFog = this._makeFogState();
     this.fogGfx = this.add.graphics().setDepth(5);
+    this.fogAnimations = new Map();
+    this.fogFillAnimations = new Map();
 
     this.debugMode = 0;
     this.debugGfx = this.add.graphics().setDepth(15);
@@ -364,7 +366,9 @@ const setupMethods = {
 
     this.input.keyboard.on('keydown-P', () => this._toggleDebugMode());
 
+    this._fogDirty = false;
     this._updateFog(this.player.x, this.player.y, this.playerFog);
+    this._redrawFog();
   },
 
   _toggleDebugMode() {

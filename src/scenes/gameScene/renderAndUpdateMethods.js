@@ -51,6 +51,7 @@ const renderAndUpdateMethods = {
     const body = this.player.body;
 
     this._updateFog(this.player.x, this.player.y, this.playerFog);
+    this._tickFog();
 
     if (this.enemyMoving) {
       this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);

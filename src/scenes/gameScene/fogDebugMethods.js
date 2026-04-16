@@ -15,15 +15,98 @@ const fogDebugMethods = {
     if (tileR === fogState.lastTile.r && tileC === fogState.lastTile.c) return;
     fogState.lastTile = { r: tileR, c: tileC };
 
+    const oldVis = fogState.visGrid.map(row => row.slice());
+
     this._revealBoxesAt(tileR, tileC, fogState.visGrid);
 
+    const now = performance.now();
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
+        if (fogState.visGrid[r][c] && !oldVis[r][c]) {
+          const dist = Math.abs(r - tileR) + Math.abs(c - tileC);
+          const key = r * MAP_COLS + c;
+          if (!this.fogAnimations.has(key)) {
+            this.fogAnimations.set(key, {
+              r, c,
+              delay: dist * 18,
+              startTime: now,
+              duration: 250,
+              alpha: fogState.fogGrid[r][c] ? 0.65 : 1,
+            });
+          }
+        }
         if (fogState.visGrid[r][c]) fogState.fogGrid[r][c] = true;
       }
     }
 
+    this._fogDirty = true;
+  },
+
+  _tickFog() {
+    if (!this._fogDirty && this.fogAnimations.size === 0 && this.fogFillAnimations.size === 0) return;
+    this._fogDirty = false;
+
     this._redrawFog();
+
+    const now = performance.now();
+    // Clean up completed clearing animations
+    if (this.fogAnimations.size > 0) {
+      const toDelete = [];
+      for (const [key, anim] of this.fogAnimations) {
+        if (now - anim.startTime - anim.delay >= anim.duration) toDelete.push(key);
+      }
+      for (const key of toDelete) this.fogAnimations.delete(key);
+    }
+    // Clean up completed fill animations
+    if (this.fogFillAnimations.size > 0) {
+      const toDelete = [];
+      for (const [key, anim] of this.fogFillAnimations) {
+        if (now - anim.startTime - anim.delay >= anim.duration) toDelete.push(key);
+      }
+      for (const key of toDelete) this.fogFillAnimations.delete(key);
+    }
+  },
+
+  _resetFogVisibility() {
+    const fogState = this.playerFog;
+    const oldVis = fogState.visGrid.map(row => row.slice());
+
+    for (let r = 0; r < MAP_ROWS; r++) fogState.visGrid[r].fill(false);
+    fogState.lastTile = { r: -1, c: -1 };
+    this._updateFog(this.player.x, this.player.y, fogState);
+
+    // Remove clearing animations for current area — the re-reveal shouldn't
+    // cause a brief fog flash over tiles that are still visible.
+    for (const [key, anim] of this.fogAnimations) {
+      if (fogState.visGrid[anim.r][anim.c]) this.fogAnimations.delete(key);
+    }
+
+    const tileR = Math.floor(this.player.y / TILE);
+    const tileC = Math.floor(this.player.x / TILE);
+    let maxDist = 0;
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        if (oldVis[r][c] && !fogState.visGrid[r][c] && fogState.fogGrid[r][c]) {
+          maxDist = Math.max(maxDist, Math.abs(r - tileR) + Math.abs(c - tileC));
+        }
+      }
+    }
+    const now = performance.now();
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        if (oldVis[r][c] && !fogState.visGrid[r][c] && fogState.fogGrid[r][c]) {
+          const dist = Math.abs(r - tileR) + Math.abs(c - tileC);
+          const key = r * MAP_COLS + c;
+          this.fogFillAnimations.set(key, {
+            r, c,
+            delay: (maxDist - dist) * 18,
+            startTime: now,
+            duration: 250,
+          });
+        }
+      }
+    }
+    this._fogDirty = true;
   },
 
   _revealBoxesAt(tileR, tileC, visGrid) {
@@ -55,7 +138,10 @@ const fogDebugMethods = {
       for (let c = 0; c < MAP_COLS; c++) {
         const seen = fogStates.some(fs => fs.fogGrid[r][c]);
         const vis = fogStates.some(fs => fs.visGrid[r][c]);
-        if (seen && !vis) this.fogGfx.fillRect(c * TILE, r * TILE, TILE, TILE);
+        if (seen && !vis) {
+          if (this.fogFillAnimations.has(r * MAP_COLS + c)) continue;
+          this.fogGfx.fillRect(c * TILE, r * TILE, TILE, TILE);
+        }
       }
     }
 
@@ -66,6 +152,44 @@ const fogDebugMethods = {
           this.fogGfx.fillRect(c * TILE, r * TILE, TILE, TILE);
         }
       }
+    }
+
+    const now = performance.now();
+
+    // Clearing animations (fog shrinking away)
+    for (const [, anim] of this.fogAnimations) {
+      const elapsed = now - anim.startTime;
+      const t = Math.max(0, elapsed - anim.delay);
+      if (t >= anim.duration) continue;
+      const progress = t / anim.duration;
+      const eased = 1 - (1 - progress) * (1 - progress);
+      const scale = 1 - eased;
+      const size = TILE * scale;
+      const offset = (TILE - size) / 2;
+      this.fogGfx.fillStyle(0x000000, anim.alpha);
+      this.fogGfx.fillRect(
+        anim.c * TILE + offset,
+        anim.r * TILE + offset,
+        size,
+        size,
+      );
+    }
+
+    // Fill animations (semi-transparent fog growing in)
+    for (const [, anim] of this.fogFillAnimations) {
+      const elapsed = now - anim.startTime;
+      const t = Math.max(0, elapsed - anim.delay);
+      const progress = Math.min(t / anim.duration, 1);
+      const eased = 1 - (1 - progress) * (1 - progress);
+      const size = TILE * eased;
+      const offset = (TILE - size) / 2;
+      this.fogGfx.fillStyle(0x000000, 0.65);
+      this.fogGfx.fillRect(
+        anim.c * TILE + offset,
+        anim.r * TILE + offset,
+        size,
+        size,
+      );
     }
 
     this._drawDebug();
