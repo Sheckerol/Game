@@ -83,6 +83,14 @@ const fogDebugMethods = {
 
     const tileR = Math.floor(this.player.y / TILE);
     const tileC = Math.floor(this.player.x / TILE);
+    let maxDist = 0;
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        if (oldVis[r][c] && !fogState.visGrid[r][c] && fogState.fogGrid[r][c]) {
+          maxDist = Math.max(maxDist, Math.abs(r - tileR) + Math.abs(c - tileC));
+        }
+      }
+    }
     const now = performance.now();
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
@@ -91,7 +99,7 @@ const fogDebugMethods = {
           const key = r * MAP_COLS + c;
           this.fogFillAnimations.set(key, {
             r, c,
-            delay: dist * 18,
+            delay: (maxDist - dist) * 18,
             startTime: now,
             duration: 250,
           });
