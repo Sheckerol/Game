@@ -89,7 +89,7 @@ const fogDebugMethods = {
     const fogStates = [this.playerFog];
     this.fogGfx.clear();
 
-    this.fogGfx.fillStyle(0x000000, 0.65);
+    this.fogGfx.fillStyle(0x440088, 0.65);
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const seen = fogStates.some(fs => fs.fogGrid[r][c]);
