@@ -222,6 +222,7 @@ const setupMethods = {
 
     this.playerHpGfx = this.add.graphics().setDepth(7);
     this._drawPlayerHp();
+    this.events.on('postupdate', this._syncHpGraphics, this);
 
     this.turnMsg = this._addUi(this.add
       .text(W / 2, H / 2, 'End of Turn!', {

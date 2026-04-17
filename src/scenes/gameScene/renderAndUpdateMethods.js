@@ -38,6 +38,11 @@ const renderAndUpdateMethods = {
     this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 8);
   },
 
+  _syncHpGraphics() {
+    this._drawPlayerHp();
+    if (this.enemyMoving && this.dummy.alive) this._updateDummyHp();
+  },
+
   _updateDummyOutline() {
     if (!this.dummy.alive) return;
     this.dummyRect.setStrokeStyle(this._canAttack() ? 2 : 0, 0xffdd00);
@@ -72,11 +77,7 @@ const renderAndUpdateMethods = {
     this._updateFog(this.player.x, this.player.y, this.playerFog);
     this._tickFog();
 
-    this._drawPlayerHp();
-
     if (this.enemyMoving) {
-      this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 8);
-      this._updateDummyHp();
       const er = Math.floor(this.dummyRect.y / TILE);
       const ec = Math.floor(this.dummyRect.x / TILE);
       if (er !== this._enemyLastTileR || ec !== this._enemyLastTileC) {
