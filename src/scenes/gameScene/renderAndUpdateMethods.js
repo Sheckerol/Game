@@ -2,8 +2,8 @@
 
 const renderAndUpdateMethods = {
   _drawCharacterHp(gfx, cx, cy, charRadius, pct, teamColor) {
-    const rimRadius = charRadius - 1.5;
-    const hpRadius = charRadius - 5;
+    const rimRadius = charRadius;
+    const hpRadius = charRadius - 4;
 
     gfx.lineStyle(1.5, teamColor, 1);
     gfx.strokeCircle(cx, cy, rimRadius);
