@@ -1,4 +1,4 @@
-﻿import { MAP_ROWS, MAP_COLS, TILE } from './constants.js';
+﻿import { MAP_ROWS, MAP_COLS, TILE, FOG_COLOR } from './constants.js';
 
 const fogDebugMethods = {
   _makeFogState() {
@@ -18,6 +18,7 @@ const fogDebugMethods = {
     const oldVis = fogState.visGrid.map(row => row.slice());
 
     this._revealBoxesAt(tileR, tileC, fogState.visGrid);
+    this._updateEnemyVisibility();
 
     const now = performance.now();
     for (let r = 0; r < MAP_ROWS; r++) {
@@ -133,7 +134,7 @@ const fogDebugMethods = {
     const fogStates = [this.playerFog];
     this.fogGfx.clear();
 
-    this.fogGfx.fillStyle(0x000000, 0.65);
+    this.fogGfx.fillStyle(FOG_COLOR, 0.65);
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const seen = fogStates.some(fs => fs.fogGrid[r][c]);
@@ -145,7 +146,7 @@ const fogDebugMethods = {
       }
     }
 
-    this.fogGfx.fillStyle(0x000000, 1);
+    this.fogGfx.fillStyle(FOG_COLOR, 1);
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         if (!fogStates.some(fs => fs.fogGrid[r][c])) {
@@ -166,7 +167,7 @@ const fogDebugMethods = {
       const scale = 1 - eased;
       const size = TILE * scale;
       const offset = (TILE - size) / 2;
-      this.fogGfx.fillStyle(0x000000, anim.alpha);
+      this.fogGfx.fillStyle(FOG_COLOR, anim.alpha);
       this.fogGfx.fillRect(
         anim.c * TILE + offset,
         anim.r * TILE + offset,
@@ -183,7 +184,7 @@ const fogDebugMethods = {
       const eased = 1 - (1 - progress) * (1 - progress);
       const size = TILE * eased;
       const offset = (TILE - size) / 2;
-      this.fogGfx.fillStyle(0x000000, 0.65);
+      this.fogGfx.fillStyle(FOG_COLOR, 0.65);
       this.fogGfx.fillRect(
         anim.c * TILE + offset,
         anim.r * TILE + offset,

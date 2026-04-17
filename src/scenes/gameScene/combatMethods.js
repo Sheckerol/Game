@@ -2,7 +2,9 @@
   ENEMY_MOVE,
   MAX_DISTANCE,
   PLAYER_HALF,
+  TILE,
 } from './constants.js';
+import { findPath } from './pathfinding.js';
 
 const combatMethods = {
   _distLabel() {
@@ -30,10 +32,9 @@ const combatMethods = {
     return this.equippedWeapon.abilities?.find(a => a.type === type) ?? null;
   },
 
-  _rollAttack() {
-    const weapon = this.equippedWeapon;
-    const crit = this._getAbility('crit_range');
-    const critAt = crit ? 21 - crit.value : 20;
+  _rollAttackWith(weapon) {
+    const crit = weapon.abilities?.find(a => a.type === 'crit_range');
+    const critAt = crit ? 20 - crit.value : 20;
     const roll = Phaser.Math.Between(1, 20);
     let damage = weapon.damage;
     let label = `-${damage}`;
@@ -44,7 +45,7 @@ const combatMethods = {
       label = `CRIT! -${damage}`;
       color = '#ffdd00';
     } else if (roll === 1) {
-      damage = Math.floor(weapon.damage / 2);
+      damage = Math.max(1, Math.floor(weapon.damage / 2));
       label = `WEAK -${damage}`;
       color = '#aaaaaa';
     }
@@ -52,26 +53,21 @@ const combatMethods = {
     return { roll, damage, label, color };
   },
 
-  _rollEnemyAttack() {
-    const weapon = this.dummy.weapon;
-    const crit = weapon.abilities?.find(a => a.type === 'crit_range');
-    const critAt = crit ? 21 - crit.value : 20;
-    const roll = Phaser.Math.Between(1, 20);
-    let damage = weapon.damage;
-    let label = `-${damage}`;
-    let color = '#ff4444';
+  _resolveAttack(attackerWeapon, defenderWeapon, defenderX, defenderY) {
+    const { roll, damage: rawDamage, label, color } = this._rollAttackWith(attackerWeapon);
 
-    if (roll >= critAt) {
-      damage = weapon.damage * 2;
-      label = `CRIT! -${damage}`;
-      color = '#ffdd00';
-    } else if (roll === 1) {
-      damage = Math.floor(weapon.damage / 2);
-      label = `WEAK -${damage}`;
-      color = '#aaaaaa';
+    let damage = rawDamage;
+    const block = defenderWeapon?.abilities?.find(a => a.type === 'block');
+    if (block && block.value > 0) {
+      const absorbed = Math.min(damage - 1, block.value);
+      damage -= absorbed;
+      this._showFloatingText(defenderX, defenderY - 48, `BLOCK ${absorbed}`, '#4fc3f7');
     }
 
-    return { roll, damage, label, color };
+    this._showFloatingText(defenderX, defenderY - 28, `Roll: ${roll}`, '#ffffff');
+    this._showFloatingText(defenderX, defenderY + 8, label, color);
+
+    return { damage };
   },
 
   _playerInAttackRange() {
@@ -99,6 +95,7 @@ const combatMethods = {
     this.player.body.setVelocity(0, 0);
 
     this._resetFogVisibility();
+    this._updateEnemyVisibility();
     this._drawRange();
     this.turnMsg.setVisible(true);
     this.time.delayedCall(800, () => {
@@ -113,15 +110,23 @@ const combatMethods = {
       return;
     }
 
+    // Track visibility — reset if seen at any point during the player's turn
+    if (this._enemySeenThisTurn) {
+      this.dummy.turnsSinceSeen = 0;
+    } else {
+      this.dummy.turnsSinceSeen++;
+    }
+
+    // If enemy hasn't seen the player for 2+ turns, skip movement
+    if (this.dummy.turnsSinceSeen >= 2) {
+      this._enemyAttackPhase();
+      return;
+    }
+
     const brace = this._getAbility('brace');
     const wasInRange = this._playerInAttackRange();
 
-    const dx = this.player.x - this.dummyRect.x;
-    const dy = this.player.y - this.dummyRect.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    const gap = dist - this.dummy.halfSize - PLAYER_HALF - 2;
-    const moveAmt = Math.min(ENEMY_MOVE, Math.max(0, gap));
+    this._enemyBudget = ENEMY_MOVE;
 
     const afterMove = () => {
       if (brace && !this.braceTriggered && !wasInRange && this._playerInAttackRange()) {
@@ -132,40 +137,126 @@ const combatMethods = {
       else this.time.delayedCall(400, () => this._startPlayerTurn());
     };
 
-    if (moveAmt > 1) {
-      const ENEMY_SPEED = 150;
-      this.enemyMoving = true;
-      this.dummyRect.body.setVelocity((dx / dist) * ENEMY_SPEED, (dy / dist) * ENEMY_SPEED);
-      this.time.delayedCall(Math.round((moveAmt / ENEMY_SPEED) * 1000), () => {
-        this.enemyMoving = false;
-        this.dummyRect.body.setVelocity(0, 0);
-        afterMove();
-      });
-      return;
-    }
-
-    afterMove();
-  },
-
-  _enemyAttackPhase() {
+    // Already in attack range — skip movement
     const enemyWeapon = this.dummy.weapon;
     const centerDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y);
     if (
       centerDist - this.dummy.halfSize - PLAYER_HALF <= enemyWeapon.range &&
       this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y)
     ) {
-      const { roll, damage: rawDamage, label, color } = this._rollEnemyAttack();
+      afterMove();
+      return;
+    }
 
-      let damage = rawDamage;
-      const block = this._getAbility('block');
-      if (block && block.value > 0) {
-        const absorbed = Math.min(damage, block.value);
-        damage -= absorbed;
-        this._showFloatingText(this.player.x, this.player.y - 48, `BLOCK ${absorbed}`, '#4fc3f7');
+    // Pathfind toward the player
+    const enemyR = Math.floor(this.dummyRect.y / TILE);
+    const enemyC = Math.floor(this.dummyRect.x / TILE);
+    const playerR = Math.floor(this.player.y / TILE);
+    const playerC = Math.floor(this.player.x / TILE);
+
+    // Calculate range in tiles (weapon range / tile size, at least 1)
+    const weaponRangeTiles = Math.max(1, Math.floor(this.dummy.weapon.range / TILE));
+    const path = findPath(this.mapGrid, enemyR, enemyC, playerR, playerC, weaponRangeTiles);
+
+    if (!path || path.length === 0) {
+      afterMove();
+      return;
+    }
+
+    // Trim path to movement budget
+    // Steps are {r, c} tile coords; convert to {x, y} pixel targets
+    let prevX = this.dummyRect.x;
+    let prevY = this.dummyRect.y;
+    const waypoints = [];
+    for (const step of path) {
+      const tx = step.c * TILE + TILE / 2;
+      const ty = step.r * TILE + TILE / 2;
+      const dx = tx - prevX;
+      const dy = ty - prevY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > this._enemyBudget) {
+        // Partial step — use remaining budget
+        if (this._enemyBudget > 1) {
+          const frac = this._enemyBudget / dist;
+          waypoints.push({ x: prevX + dx * frac, y: prevY + dy * frac });
+        }
+        this._enemyBudget = 0;
+        break;
+      }
+      this._enemyBudget -= dist;
+      waypoints.push({ x: tx, y: ty });
+      prevX = tx;
+      prevY = ty;
+    }
+
+    if (waypoints.length === 0) {
+      afterMove();
+      return;
+    }
+
+    this._animateEnemyPath(waypoints, afterMove);
+  },
+
+  _animateEnemyPath(waypoints, onComplete) {
+    const ENEMY_SPEED = 150;
+    this.enemyMoving = true;
+    this._enemyLastTileR = Math.floor(this.dummyRect.y / TILE);
+    this._enemyLastTileC = Math.floor(this.dummyRect.x / TILE);
+
+    let i = 0;
+    const moveNext = () => {
+      if (i >= waypoints.length || !this.dummy.alive) {
+        this.enemyMoving = false;
+        onComplete();
+        return;
       }
 
-      this._showFloatingText(this.player.x, this.player.y - 28, `Enemy: ${roll}`, '#ffaaaa');
-      this._showFloatingText(this.player.x, this.player.y + 8, label, color);
+      const wp = waypoints[i];
+      const dx = wp.x - this.dummyRect.x;
+      const dy = wp.y - this.dummyRect.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const duration = Math.max(1, Math.round((dist / ENEMY_SPEED) * 1000));
+
+      this.tweens.add({
+        targets: this.dummyRect,
+        x: wp.x,
+        y: wp.y,
+        duration,
+        ease: 'Linear',
+        onUpdate: () => {
+          this.dummyRect.body.reset(this.dummyRect.x, this.dummyRect.y);
+        },
+        onComplete: () => {
+          i++;
+          moveNext();
+        },
+      });
+    };
+
+    moveNext();
+  },
+
+  _enemyAttackPhase() {
+    const enemyWeapon = this.dummy.weapon;
+    const scaledCost = (ENEMY_MOVE / MAX_DISTANCE) * enemyWeapon.cost;
+
+    const tryAttack = () => {
+      if (!this.dummy.alive || this._enemyBudget < scaledCost) {
+        this.time.delayedCall(500, () => this._startPlayerTurn());
+        return;
+      }
+
+      const centerDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y);
+      if (
+        centerDist - this.dummy.halfSize - PLAYER_HALF > enemyWeapon.range ||
+        !this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y)
+      ) {
+        this.time.delayedCall(500, () => this._startPlayerTurn());
+        return;
+      }
+
+      this._enemyBudget -= scaledCost;
+      const { damage } = this._resolveAttack(this.dummy.weapon, this.equippedWeapon, this.player.x, this.player.y);
 
       this.playerHp = Math.max(0, this.playerHp - damage);
       this._drawPlayerHp();
@@ -174,12 +265,16 @@ const combatMethods = {
         this.time.delayedCall(1000, () => this._gameOver());
         return;
       }
-    }
 
-    this.time.delayedCall(500, () => this._startPlayerTurn());
+      // Try another attack after a short delay
+      this.time.delayedCall(500, tryAttack);
+    };
+
+    tryAttack();
   },
 
   _startPlayerTurn() {
+    this._enemySeenThisTurn = false;
     this.turnCount++;
 
     if (!this.dummy.alive && this.turnCount - this.dummy.defeatedAtTurn >= 3) {
@@ -202,10 +297,11 @@ const combatMethods = {
   _resurrectDummy() {
     this.dummy.hp = this.dummy.maxHp;
     this.dummy.alive = true;
+    this.dummy.turnsSinceSeen = 2;
     this.dummyRect.setFillStyle(0xf5a623).setStrokeStyle(0).setDepth(3);
     this.dummyRect.body.setEnable(true);
     this._updateDummyHp();
-    this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 40, 'RESURRECT!', '#ff88ff');
+    this._updateEnemyVisibility();
   },
 
   _drawPlayerHp() {
@@ -231,8 +327,8 @@ const combatMethods = {
     this.turnEnding = true;
     const W = this.W;
     const H = this.H;
-    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.7).setScrollFactor(0).setDepth(40);
-    this.add
+    this._addUi(this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.7).setScrollFactor(0).setDepth(40));
+    this._addUi(this.add
       .text(W / 2, H / 2 - 40, 'GAME OVER', {
         fontSize: '44px',
         color: '#ff2222',
@@ -241,8 +337,8 @@ const combatMethods = {
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(41);
-    this.add
+      .setDepth(41));
+    this._addUi(this.add
       .text(W / 2, H / 2 + 30, 'Refresh to restart', {
         fontSize: '18px',
         color: '#aaaaaa',
@@ -251,7 +347,7 @@ const combatMethods = {
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(41);
+      .setDepth(41));
   },
 
   _canAttack() {
@@ -267,9 +363,7 @@ const combatMethods = {
     this.movesText.setText(this._distLabel());
     this._drawRange();
 
-    const { roll, damage, label, color } = this._rollAttack();
-    this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 28, `Roll: ${roll}`, '#ffffff');
-    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8, label, color);
+    const { damage } = this._resolveAttack(this.equippedWeapon, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
     this._applyDamageToDummy(damage);
 
     if (this.distLeft <= 0) this._endTurn();
@@ -277,21 +371,11 @@ const combatMethods = {
 
   _doBraceAttack() {
     this._showFloatingText(this.player.x, this.player.y - 52, 'BRACE!', '#88ffff');
-    const { roll, damage, label, color } = this._rollAttack();
-    this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 28, `Roll: ${roll}`, '#ffffff');
-    this._showFloatingText(this.dummyRect.x, this.dummyRect.y + 8, label, color);
+    const { damage } = this._resolveAttack(this.equippedWeapon, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
     this._applyDamageToDummy(damage);
   },
 
-  _applyDamageToDummy(rawDamage) {
-    let damage = rawDamage;
-    const block = this.dummy.weapon?.abilities?.find(a => a.type === 'block');
-    if (block && block.value > 0) {
-      const absorbed = Math.min(damage, block.value);
-      damage -= absorbed;
-      this._showFloatingText(this.dummyRect.x, this.dummyRect.y - 48, `BLOCK ${absorbed}`, '#4fc3f7');
-    }
-
+  _applyDamageToDummy(damage) {
     this.dummy.hp = Math.max(0, this.dummy.hp - damage);
     this._updateDummyHp();
     if (this.dummy.hp <= 0) {

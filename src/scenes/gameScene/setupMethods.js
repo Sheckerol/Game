@@ -1,6 +1,7 @@
 import { generateMap, expandCorridors } from '../../mapGen.js';
 import {
   DUMMY_HP,
+  FOG_COLOR,
   JOY_MARGIN,
   JOY_RADIUS,
   MAP_COLS,
@@ -26,6 +27,7 @@ function mulberry32(seed) {
 
 const setupMethods = {
   create() {
+    this.uiElements = [];
     this._setupMap();
     this._setupPlayerAndDummy();
     this._setupTurnAndCombatState();
@@ -33,6 +35,7 @@ const setupMethods = {
     this._setupControls();
     this._setupFogAndDebug();
     this._buildInventoryPanel();
+    this._setupUiCamera();
   },
 
   _setupMap() {
@@ -117,6 +120,7 @@ const setupMethods = {
       halfSize: (TILE - 4) / 2,
       weapon: WEAPONS[1],
       defeatedAtTurn: -1,
+      turnsSinceSeen: 2,
     };
     this.dummyRect = this.add
       .circle(this.enemyStart[1] * TILE + TILE / 2, this.enemyStart[0] * TILE + TILE / 2, this.dummy.halfSize, 0xf5a623)
@@ -146,6 +150,19 @@ const setupMethods = {
 
     this.dummyHpGfx = this.add.graphics().setDepth(4);
     this._updateDummyHp();
+
+    this.enemyMarker = this.add
+      .text(0, 0, '?', {
+        fontSize: '18px',
+        color: '#f5a623',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(6)
+      .setVisible(false);
+    this._enemyVisible = false;
+    this._enemySeenThisTurn = false;
   },
 
   _setupTurnAndCombatState() {
@@ -174,13 +191,14 @@ const setupMethods = {
   _setupCameraAndUi() {
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
     this.cameras.main.setFollowOffset(0, -160);
+    this.cameras.main.setBackgroundColor(FOG_COLOR);
 
     const W = this.scale.width;
     const H = this.scale.height;
     this.W = W;
     this.H = H;
 
-    this.movesText = this.add
+    this.movesText = this._addUi(this.add
       .text(W / 2, 20, this._distLabel(), {
         fontSize: '18px',
         color: '#ffffff',
@@ -189,9 +207,9 @@ const setupMethods = {
       })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
-      .setDepth(10);
+      .setDepth(10));
 
-    this.weaponText = this.add
+    this.weaponText = this._addUi(this.add
       .text(W / 2, 46, this._weaponLabel(), {
         fontSize: '13px',
         color: '#ffdd00',
@@ -200,9 +218,9 @@ const setupMethods = {
       })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
-      .setDepth(10);
+      .setDepth(10));
 
-    this.add
+    this._addUi(this.add
       .text(50, 72, 'HP', {
         fontSize: '12px',
         color: '#aaffaa',
@@ -211,11 +229,11 @@ const setupMethods = {
       })
       .setOrigin(0, 0.5)
       .setScrollFactor(0)
-      .setDepth(10);
-    this.playerHpGfx = this.add.graphics().setScrollFactor(0).setDepth(10);
+      .setDepth(10));
+    this.playerHpGfx = this._addUi(this.add.graphics().setScrollFactor(0).setDepth(10));
     this._drawPlayerHp();
 
-    this.turnMsg = this.add
+    this.turnMsg = this._addUi(this.add
       .text(W / 2, H / 2, 'End of Turn!', {
         fontSize: '28px',
         color: '#f5a623',
@@ -225,10 +243,10 @@ const setupMethods = {
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(10)
-      .setVisible(false);
+      .setVisible(false));
 
-    this.endTurnBtn = this.add.circle(W - JOY_MARGIN, H - JOY_MARGIN, 44, 0x2266cc).setScrollFactor(0).setDepth(10).setInteractive();
-    this.add
+    this.endTurnBtn = this._addUi(this.add.circle(W - JOY_MARGIN, H - JOY_MARGIN, 44, 0x2266cc).setScrollFactor(0).setDepth(10).setInteractive());
+    this._addUi(this.add
       .text(W - JOY_MARGIN, H - JOY_MARGIN, 'END\nTURN', {
         fontSize: '13px',
         color: '#ffffff',
@@ -238,14 +256,14 @@ const setupMethods = {
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(11);
+      .setDepth(11));
     this.endTurnBtn.on('pointerdown', () => {
       this.justAttacked = true;
       this._endTurnManual();
     });
 
-    this.bagBtn = this.add.circle(W / 2, H - JOY_MARGIN, 44, 0x446644).setScrollFactor(0).setDepth(10).setInteractive();
-    this.add
+    this.bagBtn = this._addUi(this.add.circle(W / 2, H - JOY_MARGIN, 44, 0x446644).setScrollFactor(0).setDepth(10).setInteractive());
+    this._addUi(this.add
       .text(W / 2, H - JOY_MARGIN, 'BAG', {
         fontSize: '16px',
         color: '#ffffff',
@@ -254,10 +272,29 @@ const setupMethods = {
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(11);
+      .setDepth(11));
     this.bagBtn.on('pointerdown', () => {
       this.justAttacked = true;
       this.inventoryOpen ? this._closeInventory() : this._openInventory();
+    });
+  },
+
+  _addUi(obj) {
+    this.uiElements.push(obj);
+    if (this.uiCam) {
+      this.cameras.main.ignore(obj);
+    }
+    return obj;
+  },
+
+  _setupUiCamera() {
+    this.uiCam = this.cameras.add(0, 0, this.W, this.H);
+    this.uiCam.setScroll(0, 0);
+    this.uiElements.forEach(obj => this.cameras.main.ignore(obj));
+    this.children.list.forEach(obj => {
+      if (!this.uiElements.includes(obj)) {
+        this.uiCam.ignore(obj);
+      }
     });
   },
 
@@ -272,10 +309,18 @@ const setupMethods = {
 
     this.input.addPointer(1);
     this.joy = { active: false, pointerId: null, baseX: 0, baseY: 0, dx: 0, dy: 0 };
-    this.joyGfx = this.add.graphics().setScrollFactor(0).setDepth(10);
+    this.joyGfx = this._addUi(this.add.graphics().setScrollFactor(0).setDepth(10));
     this._drawJoystick(JOY_MARGIN, this.H - JOY_MARGIN, 0, 0, false);
 
     this._pinchDist = null;
+
+    // Mouse wheel zoom for desktop
+    this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY) => {
+      const zoomDelta = deltaY > 0 ? 0.9 : 1.1;
+      const zoom = Phaser.Math.Clamp(this.cameras.main.zoom * zoomDelta, 0.25, 3);
+      this.cameras.main.setZoom(zoom);
+      this.cameras.main.setFollowOffset(0, -160 / zoom);
+    });
 
     this.input.on('pointerdown', ptr => {
       if (this.justAttacked) {
@@ -310,6 +355,7 @@ const setupMethods = {
         if (this._pinchDist !== null) {
           const zoom = Phaser.Math.Clamp(this.cameras.main.zoom * (dist / this._pinchDist), 0.25, 3);
           this.cameras.main.setZoom(zoom);
+          this.cameras.main.setFollowOffset(0, -160 / zoom);
         }
         this._pinchDist = dist;
         return;
@@ -351,8 +397,8 @@ const setupMethods = {
     this.debugMode = 0;
     this.debugGfx = this.add.graphics().setDepth(15);
 
-    const dbgBtn = this.add.circle(30, 105, 20, 0x553311).setScrollFactor(0).setDepth(10).setInteractive();
-    this.add
+    const dbgBtn = this._addUi(this.add.circle(30, 105, 20, 0x553311).setScrollFactor(0).setDepth(10).setInteractive());
+    this._addUi(this.add
       .text(30, 105, 'DBG', {
         fontSize: '9px',
         color: '#ffcc88',
@@ -361,7 +407,7 @@ const setupMethods = {
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(11);
+      .setDepth(11));
     dbgBtn.on('pointerdown', () => this._toggleDebugMode());
 
     this.input.keyboard.on('keydown-P', () => this._toggleDebugMode());

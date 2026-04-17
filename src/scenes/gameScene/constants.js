@@ -25,3 +25,5 @@ export const WORLD_H = MAP_ROWS * TILE;
 export const JOY_RADIUS = 50;
 export const JOY_KNOB_RADIUS = 22;
 export const JOY_MARGIN = 80;
+
+export const FOG_COLOR = 0x000000;

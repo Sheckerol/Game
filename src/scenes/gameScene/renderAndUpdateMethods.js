@@ -1,4 +1,4 @@
-﻿import { JOY_KNOB_RADIUS, JOY_RADIUS, PLAYER_HALF, SPEED, TILE } from './constants.js';
+﻿import { JOY_KNOB_RADIUS, JOY_RADIUS, PLAYER_HALF, SPEED, TILE, MAP_COLS } from './constants.js';
 
 const renderAndUpdateMethods = {
   _updateDummyHp() {
@@ -37,6 +37,8 @@ const renderAndUpdateMethods = {
       .setOrigin(0.5)
       .setDepth(20);
 
+    if (this.uiCam) this.uiCam.ignore(t);
+
     this.tweens.add({
       targets: t,
       y: y - 50,
@@ -56,6 +58,13 @@ const renderAndUpdateMethods = {
     if (this.enemyMoving) {
       this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);
       this._updateDummyHp();
+      const er = Math.floor(this.dummyRect.y / TILE);
+      const ec = Math.floor(this.dummyRect.x / TILE);
+      if (er !== this._enemyLastTileR || ec !== this._enemyLastTileC) {
+        this._enemyLastTileR = er;
+        this._enemyLastTileC = ec;
+        this._updateEnemyVisibility();
+      }
     }
 
     if (this.inventoryOpen) {
@@ -122,6 +131,27 @@ const renderAndUpdateMethods = {
     } else {
       body.setVelocity(0, 0);
     }
+  },
+
+  _updateEnemyVisibility() {
+    if (!this.dummy.alive) {
+      this.enemyMarker.setVisible(false);
+      return;
+    }
+    const r = Math.floor(this.dummyRect.y / TILE);
+    const c = Math.floor(this.dummyRect.x / TILE);
+    const vis = this.playerFog.visGrid[r]?.[c] === true;
+    if (vis && !this._enemyVisible) {
+      this.enemyMarker.setVisible(false);
+    } else if (!vis && this._enemyVisible) {
+      this.enemyMarker.setPosition(this.dummyRect.x, this.dummyRect.y);
+      this.enemyMarker.setVisible(true);
+    }
+    this._enemyVisible = vis;
+    if (vis) this._enemySeenThisTurn = true;
+    this.dummyRect.setVisible(vis);
+    this.dummyLabel.setVisible(vis);
+    this.dummyHpGfx.setVisible(vis);
   },
 
   _drawAttackRange() {
