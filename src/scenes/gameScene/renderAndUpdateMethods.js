@@ -2,24 +2,24 @@
 
 const renderAndUpdateMethods = {
   _drawCharacterHp(gfx, cx, cy, charRadius, pct, teamColor) {
-    const hpRadius = charRadius + 3;
-    const rimRadius = charRadius + 7;
+    const rimRadius = charRadius - 1.5;
+    const hpRadius = charRadius - 5;
 
-    gfx.lineStyle(3, 0x222222, 0.85);
+    gfx.lineStyle(1.5, teamColor, 1);
+    gfx.strokeCircle(cx, cy, rimRadius);
+
+    gfx.lineStyle(2, 0x222222, 0.85);
     gfx.beginPath();
     gfx.arc(cx, cy, hpRadius, Math.PI, 2 * Math.PI, false);
     gfx.strokePath();
 
     if (pct > 0) {
       const hpColor = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
-      gfx.lineStyle(3, hpColor, 1);
+      gfx.lineStyle(2, hpColor, 1);
       gfx.beginPath();
       gfx.arc(cx, cy, hpRadius, Math.PI, Math.PI + pct * Math.PI, false);
       gfx.strokePath();
     }
-
-    gfx.lineStyle(2, teamColor, 1);
-    gfx.strokeCircle(cx, cy, rimRadius);
   },
 
   _updateDummyHp() {
