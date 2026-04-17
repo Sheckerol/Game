@@ -139,7 +139,7 @@ const setupMethods = {
     });
 
     this.dummyLabel = this.add
-      .text(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4, `DUMMY [${this.dummy.weapon.name}]`, {
+      .text(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 8, `DUMMY [${this.dummy.weapon.name}]`, {
         fontSize: '9px',
         color: '#ffffff',
         stroke: '#000000',
@@ -220,17 +220,7 @@ const setupMethods = {
       .setScrollFactor(0)
       .setDepth(10));
 
-    this._addUi(this.add
-      .text(50, 72, 'HP', {
-        fontSize: '12px',
-        color: '#aaffaa',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0)
-      .setDepth(10));
-    this.playerHpGfx = this._addUi(this.add.graphics().setScrollFactor(0).setDepth(10));
+    this.playerHpGfx = this.add.graphics().setDepth(7);
     this._drawPlayerHp();
 
     this.turnMsg = this._addUi(this.add

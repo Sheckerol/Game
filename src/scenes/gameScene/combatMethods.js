@@ -306,21 +306,14 @@ const combatMethods = {
 
   _drawPlayerHp() {
     this.playerHpGfx.clear();
-    const barW = 160;
-    const barH = 10;
-    const bx = 68;
-    const by = 67;
-
-    this.playerHpGfx.fillStyle(0x333333, 1);
-    this.playerHpGfx.fillRect(bx, by, barW, barH);
-
-    const pct = this.playerHp / this.playerMaxHp;
-    const color = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
-    this.playerHpGfx.fillStyle(color, 1);
-    this.playerHpGfx.fillRect(bx, by, barW * pct, barH);
-
-    this.playerHpGfx.lineStyle(1, 0x888888, 0.8);
-    this.playerHpGfx.strokeRect(bx, by, barW, barH);
+    this._drawCharacterHp(
+      this.playerHpGfx,
+      this.player.x,
+      this.player.y,
+      PLAYER_HALF,
+      this.playerHp / this.playerMaxHp,
+      0x3b8eff,
+    );
   },
 
   _gameOver() {
