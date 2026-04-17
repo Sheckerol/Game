@@ -3,10 +3,14 @@
 const renderAndUpdateMethods = {
   _drawCharacterHp(gfx, cx, cy, charRadius, pct, teamColor) {
     const rimRadius = charRadius;
-    const hpRadius = charRadius - 4;
+    const separatorRadius = charRadius - 2;
+    const hpRadius = charRadius - 5;
 
     gfx.lineStyle(1.5, teamColor, 1);
     gfx.strokeCircle(cx, cy, rimRadius);
+
+    gfx.lineStyle(1, 0x000000, 1);
+    gfx.strokeCircle(cx, cy, separatorRadius);
 
     gfx.lineStyle(2, 0x222222, 0.85);
     gfx.beginPath();
