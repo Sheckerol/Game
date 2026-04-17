@@ -151,7 +151,10 @@ const inventoryMethods = {
       if (this.dragCard && this.inventoryOpen) this._endCardDrag(ptr);
     });
 
-    this.invElements.forEach(el => el.setVisible(false));
+    this.invElements.forEach(el => {
+      this._addUi(el);
+      el.setVisible(false);
+    });
   },
 
   _startCardDrag(card) {
