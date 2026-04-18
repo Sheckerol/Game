@@ -1,4 +1,4 @@
-﻿import { JOY_KNOB_RADIUS, JOY_RADIUS, PLAYER_HALF, SPEED, TILE, MAP_COLS } from './constants.js';
+import { JOY_KNOB_RADIUS, JOY_RADIUS, PLAYER_HALF, SPEED, TILE } from './constants.js';
 
 const renderAndUpdateMethods = {
   _drawCharacterHp(gfx, cx, cy, charRadius, pct, teamColor) {
@@ -43,7 +43,17 @@ const renderAndUpdateMethods = {
   },
 
   _syncHpGraphics() {
-    this._drawPlayerHp();
+    if (!this.chars) return;
+    const active = this._activeChar();
+    for (const c of this.chars) {
+      c.hpGfx.clear();
+      if (!c.alive) continue;
+      this._drawCharacterHp(c.hpGfx, c.sprite.x, c.sprite.y, PLAYER_HALF, c.hp / c.maxHp, c.color);
+      if (c === active) {
+        c.hpGfx.lineStyle(2, 0xffffff, 0.9);
+        c.hpGfx.strokeCircle(c.sprite.x, c.sprite.y, PLAYER_HALF + 2);
+      }
+    }
     if (this.enemyMoving && this.dummy.alive) this._updateDummyHp();
   },
 
@@ -75,10 +85,21 @@ const renderAndUpdateMethods = {
     });
   },
 
-  update(_time, delta) {
-    const body = this.player.body;
+  _updateFogForChar(char) {
+    const tileR = Math.floor(char.sprite.y / TILE);
+    const tileC = Math.floor(char.sprite.x / TILE);
+    if (tileR === char.lastFogTile.r && tileC === char.lastFogTile.c) return;
+    char.lastFogTile = { r: tileR, c: tileC };
+    this._updateFog(char.sprite.x, char.sprite.y, this.playerFog);
+  },
 
-    this._updateFog(this.player.x, this.player.y, this.playerFog);
+  update(_time, delta) {
+    const active = this._activeChar();
+    const body = active.sprite.body;
+
+    for (const c of this.chars) {
+      if (c.alive) this._updateFogForChar(c);
+    }
     this._tickFog();
 
     if (this.enemyMoving) {
@@ -97,21 +118,21 @@ const renderAndUpdateMethods = {
     }
 
     if (!this.turnEnding) {
-      const dx = this.player.x - this.lastX;
-      const dy = this.player.y - this.lastY;
+      const dx = active.sprite.x - active.lastX;
+      const dy = active.sprite.y - active.lastY;
       const actualDist = Math.sqrt(dx * dx + dy * dy);
       if (actualDist > 0) {
-        this.distLeft = Math.max(0, this.distLeft - actualDist);
+        active.distLeft = Math.max(0, active.distLeft - actualDist);
         this.movesText.setText(this._distLabel());
         this._drawRange();
         this._drawAttackRange();
         this._updateDummyOutline();
-        if (this.distLeft <= 0) this._endTurn();
+        if (active.distLeft <= 0) this._onActiveCharExhausted();
       }
     }
 
-    this.lastX = this.player.x;
-    this.lastY = this.player.y;
+    active.lastX = active.sprite.x;
+    active.lastY = active.sprite.y;
 
     if (this.turnEnding) {
       body.setVelocity(0, 0);
@@ -143,11 +164,11 @@ const renderAndUpdateMethods = {
       vy *= 0.707;
     }
 
-    if (this.distLeft > 0 && (vx !== 0 || vy !== 0)) {
+    if (active.distLeft > 0 && (vx !== 0 || vy !== 0)) {
       const frameSpeed = Math.sqrt(vx * vx + vy * vy);
       const frameDist = frameSpeed * (delta / 1000);
-      if (frameDist > this.distLeft) {
-        const scale = this.distLeft / frameDist;
+      if (frameDist > active.distLeft) {
+        const scale = active.distLeft / frameDist;
         vx *= scale;
         vy *= scale;
       }
@@ -181,18 +202,24 @@ const renderAndUpdateMethods = {
   _drawAttackRange() {
     this.atkRangeGfx.clear();
     if (!this.dummy.alive) return;
+    const active = this._activeChar();
+    if (!active || !active.alive) return;
+    const w = active.inventory[0];
+    if (!w) return;
 
     this.atkRangeGfx.lineStyle(1.5, 0xff4444, 0.5);
-    this.atkRangeGfx.strokeCircle(this.player.x, this.player.y, this.equippedWeapon.range + PLAYER_HALF);
+    this.atkRangeGfx.strokeCircle(active.sprite.x, active.sprite.y, w.range + PLAYER_HALF);
   },
 
   _drawRange() {
     this.rangeGfx.clear();
-    if (this.turnEnding || this.distLeft <= 0) return;
+    if (this.turnEnding) return;
+    const active = this._activeChar();
+    if (!active || !active.alive || active.distLeft <= 0) return;
 
-    const x = this.player.x;
-    const y = this.player.y;
-    const r = this.distLeft + (TILE - 4) / 2;
+    const x = active.sprite.x;
+    const y = active.sprite.y;
+    const r = active.distLeft + (TILE - 4) / 2;
 
     this.rangeGfx.fillStyle(0x4fc3f7, 0.1);
     this.rangeGfx.fillCircle(x, y, r);

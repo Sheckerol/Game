@@ -12,8 +12,6 @@ const fogDebugMethods = {
   _updateFog(px, py, fogState) {
     const tileR = Math.floor(py / TILE);
     const tileC = Math.floor(px / TILE);
-    if (tileR === fogState.lastTile.r && tileC === fogState.lastTile.c) return;
-    fogState.lastTile = { r: tileR, c: tileC };
 
     const oldVis = fogState.visGrid.map(row => row.slice());
 
@@ -74,7 +72,12 @@ const fogDebugMethods = {
 
     for (let r = 0; r < MAP_ROWS; r++) fogState.visGrid[r].fill(false);
     fogState.lastTile = { r: -1, c: -1 };
-    this._updateFog(this.player.x, this.player.y, fogState);
+    for (const c of this.chars) {
+      if (c.alive) {
+        c.lastFogTile = { r: -1, c: -1 };
+        this._updateFog(c.sprite.x, c.sprite.y, fogState);
+      }
+    }
 
     // Remove clearing animations for current area — the re-reveal shouldn't
     // cause a brief fog flash over tiles that are still visible.
@@ -82,8 +85,9 @@ const fogDebugMethods = {
       if (fogState.visGrid[anim.r][anim.c]) this.fogAnimations.delete(key);
     }
 
-    const tileR = Math.floor(this.player.y / TILE);
-    const tileC = Math.floor(this.player.x / TILE);
+    const active = this._activeChar();
+    const tileR = Math.floor(active.sprite.y / TILE);
+    const tileC = Math.floor(active.sprite.x / TILE);
     let maxDist = 0;
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
@@ -200,8 +204,9 @@ const fogDebugMethods = {
     this.debugGfx.clear();
     if (this.debugMode === 0) return;
 
-    const tileR = Math.floor(this.player.y / TILE);
-    const tileC = Math.floor(this.player.x / TILE);
+    const active = this._activeChar();
+    const tileR = Math.floor(active.sprite.y / TILE);
+    const tileC = Math.floor(active.sprite.x / TILE);
 
     this.debugGfx.lineStyle(2, 0xffffff, 1);
     this.debugGfx.strokeRect(tileC * TILE, tileR * TILE, TILE, TILE);
