@@ -1,24 +1,50 @@
 ﻿import { JOY_KNOB_RADIUS, JOY_RADIUS, PLAYER_HALF, SPEED, TILE, MAP_COLS } from './constants.js';
 
 const renderAndUpdateMethods = {
+  _drawCharacterHp(gfx, cx, cy, charRadius, pct, teamColor) {
+    const rimRadius = charRadius - 0.75;
+    const separatorRadius = charRadius - 2;
+    const hpRadius = charRadius - 3.5;
+
+    gfx.lineStyle(1.5, teamColor, 1);
+    gfx.strokeCircle(cx, cy, rimRadius);
+
+    gfx.lineStyle(1, 0x000000, 1);
+    gfx.strokeCircle(cx, cy, separatorRadius);
+
+    gfx.lineStyle(2, 0x222222, 0.85);
+    gfx.beginPath();
+    gfx.arc(cx, cy, hpRadius, Math.PI, 2 * Math.PI, false);
+    gfx.strokePath();
+
+    if (pct > 0) {
+      const hpColor = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
+      gfx.lineStyle(2, hpColor, 1);
+      gfx.beginPath();
+      gfx.arc(cx, cy, hpRadius, Math.PI, Math.PI + pct * Math.PI, false);
+      gfx.strokePath();
+    }
+  },
+
   _updateDummyHp() {
     this.dummyHpGfx.clear();
     if (!this.dummy.alive) return;
 
-    const barW = TILE;
-    const barH = 5;
-    const bx = this.dummyRect.x - barW / 2;
-    const by = this.dummyRect.y - TILE / 2 - 7;
+    this._drawCharacterHp(
+      this.dummyHpGfx,
+      this.dummyRect.x,
+      this.dummyRect.y,
+      this.dummy.halfSize,
+      this.dummy.hp / this.dummy.maxHp,
+      0xff4444,
+    );
 
-    this.dummyHpGfx.fillStyle(0x333333, 1);
-    this.dummyHpGfx.fillRect(bx, by, barW, barH);
+    this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 8);
+  },
 
-    const pct = this.dummy.hp / this.dummy.maxHp;
-    const color = pct > 0.5 ? 0x44cc44 : pct > 0.25 ? 0xffaa00 : 0xcc2200;
-    this.dummyHpGfx.fillStyle(color, 1);
-    this.dummyHpGfx.fillRect(bx, by, barW * pct, barH);
-
-    this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);
+  _syncHpGraphics() {
+    this._drawPlayerHp();
+    if (this.enemyMoving && this.dummy.alive) this._updateDummyHp();
   },
 
   _updateDummyOutline() {
@@ -56,8 +82,6 @@ const renderAndUpdateMethods = {
     this._tickFog();
 
     if (this.enemyMoving) {
-      this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 4);
-      this._updateDummyHp();
       const er = Math.floor(this.dummyRect.y / TILE);
       const ec = Math.floor(this.dummyRect.x / TILE);
       if (er !== this._enemyLastTileR || ec !== this._enemyLastTileC) {
