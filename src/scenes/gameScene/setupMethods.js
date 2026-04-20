@@ -155,12 +155,6 @@ const setupMethods = {
 
     this.activeIdx = 0;
 
-    for (let i = 0; i < this.chars.length; i++) {
-      for (let j = i + 1; j < this.chars.length; j++) {
-        this.physics.add.collider(this.chars[i].sprite, this.chars[j].sprite);
-      }
-    }
-
     this.dummy = {
       hp: DUMMY_HP,
       maxHp: DUMMY_HP,
