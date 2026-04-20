@@ -52,7 +52,7 @@ const renderAndUpdateMethods = {
     for (const c of this.chars) {
       c.hpGfx.clear();
       if (!c.alive) continue;
-      this._drawCharacterHp(c.hpGfx, c.sprite.x, c.sprite.y, PLAYER_HALF, c.hp / c.maxHp, c.color);
+      this._drawCharacterHp(c.hpGfx, c.sprite.x, c.sprite.y, PLAYER_HALF, c.hp / c.maxHp, 0x3b8eff);
       if (c === active) {
         c.hpGfx.lineStyle(2, 0xffffff, 0.9);
         c.hpGfx.strokeCircle(c.sprite.x, c.sprite.y, PLAYER_HALF + 2);
