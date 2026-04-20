@@ -29,6 +29,7 @@ const combatMethods = {
     this._drawRange();
     this._drawAttackRange();
     this._updateDummyOutline();
+    this._refreshCharSelector();
   },
 
   _distLabel() {
@@ -357,6 +358,7 @@ const combatMethods = {
     if (char.sprite.body) char.sprite.body.setEnable(false);
     char.sprite.disableInteractive();
     char.hpGfx.clear();
+    this._refreshCharSelector();
     if (this.activeIdx === deadIdx) {
       const nextAlive = this.chars.findIndex(c => c.alive);
       if (nextAlive >= 0) {

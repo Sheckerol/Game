@@ -305,6 +305,62 @@ const setupMethods = {
       this.justAttacked = true;
       this.inventoryOpen ? this._closeInventory() : this._openInventory();
     });
+
+    this._buildCharacterSelector();
+  },
+
+  _buildCharacterSelector() {
+    const x = 30;
+    const y0 = 150;
+    const dy = 46;
+    const r = 16;
+
+    this.charSelectorButtons = this.chars.map((char, i) => {
+      const cy = y0 + i * dy;
+      const bg = this._addUi(
+        this.add
+          .circle(x, cy, r, char.color)
+          .setStrokeStyle(2, 0xffffff, 0.4)
+          .setScrollFactor(0)
+          .setDepth(10)
+          .setInteractive()
+      );
+      const label = this._addUi(
+        this.add
+          .text(x, cy, char.id, {
+            fontSize: '14px',
+            color: '#000000',
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5)
+          .setScrollFactor(0)
+          .setDepth(11)
+      );
+      bg.on('pointerdown', () => {
+        this.justAttacked = true;
+        if (char.alive) this._setActiveChar(i);
+      });
+      return { bg, label, char };
+    });
+
+    this._refreshCharSelector();
+  },
+
+  _refreshCharSelector() {
+    if (!this.charSelectorButtons) return;
+    for (let i = 0; i < this.charSelectorButtons.length; i++) {
+      const { bg, label, char } = this.charSelectorButtons[i];
+      if (!char.alive) {
+        bg.setFillStyle(0x555555);
+        bg.setStrokeStyle(1, 0x333333, 0.5);
+        label.setColor('#888888');
+        continue;
+      }
+      const isActive = i === this.activeIdx;
+      bg.setFillStyle(char.color);
+      bg.setStrokeStyle(isActive ? 3 : 2, isActive ? 0xffffff : 0xffffff, isActive ? 1 : 0.4);
+      label.setColor('#000000');
+    }
   },
 
   _addUi(obj) {
