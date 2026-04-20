@@ -122,6 +122,7 @@ const setupMethods = {
       this.physics.add.existing(sprite);
       sprite.body.setCircle(PLAYER_HALF);
       sprite.body.setCollideWorldBounds(true);
+      sprite.body.pushable = false;
       this.physics.add.collider(sprite, this.wallGroup);
 
       const weapon = WEAPONS[CHAR_STARTING_WEAPON_IDX[i]];
