@@ -113,8 +113,12 @@ const combatMethods = {
     const alive = this.chars.filter(c => c.alive);
     if (alive.length === 0) return null;
 
-    const withLos = alive.filter(c => this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, c.sprite.x, c.sprite.y));
-    const pool = withLos.length > 0 ? withLos : alive;
+    const weapon = this.dummy.weapon;
+    const inRangeLos = alive.filter(c => this._dummyCanHit(c, weapon));
+    const withLos = inRangeLos.length > 0
+      ? inRangeLos
+      : alive.filter(c => this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, c.sprite.x, c.sprite.y));
+    const pool = inRangeLos.length > 0 ? inRangeLos : (withLos.length > 0 ? withLos : alive);
 
     let best = pool[0];
     let bestDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, best.sprite.x, best.sprite.y);
@@ -126,6 +130,12 @@ const combatMethods = {
       }
     }
     return best;
+  },
+
+  _dummyCanHit(char, weapon) {
+    const d = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, char.sprite.x, char.sprite.y);
+    if (d - PLAYER_HALF - this.dummy.halfSize > weapon.range) return false;
+    return this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, char.sprite.x, char.sprite.y);
   },
 
   _endTurnManual() {
@@ -303,19 +313,21 @@ const combatMethods = {
         return;
       }
 
-      const target = this._selectEnemyTarget();
-      if (!target) {
+      const alive = this.chars.filter(c => c.alive);
+      const hittable = alive.filter(c => this._dummyCanHit(c, enemyWeapon));
+      if (hittable.length === 0) {
         this.time.delayedCall(500, () => this._startPlayerTurn());
         return;
       }
 
-      const centerDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, target.sprite.x, target.sprite.y);
-      if (
-        centerDist - this.dummy.halfSize - PLAYER_HALF > enemyWeapon.range ||
-        !this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, target.sprite.x, target.sprite.y)
-      ) {
-        this.time.delayedCall(500, () => this._startPlayerTurn());
-        return;
+      let target = hittable[0];
+      let bestDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, target.sprite.x, target.sprite.y);
+      for (let i = 1; i < hittable.length; i++) {
+        const d = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, hittable[i].sprite.x, hittable[i].sprite.y);
+        if (d < bestDist) {
+          target = hittable[i];
+          bestDist = d;
+        }
       }
 
       this._enemyBudget -= scaledCost;
@@ -455,17 +467,6 @@ const combatMethods = {
 
     const { damage } = this._resolveAttack(w, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
     this._applyDamageToDummy(damage);
-
-    if (c.distLeft <= 0) this._onActiveCharExhausted();
-  },
-
-  _onActiveCharExhausted() {
-    const nextAlive = this.chars.findIndex(c => c.alive && c.distLeft > 0);
-    if (nextAlive >= 0) {
-      this._setActiveChar(nextAlive);
-    } else if (this.chars.every(c => !c.alive || c.distLeft <= 0)) {
-      this._endTurn();
-    }
   },
 
   _doBraceAttack(target) {

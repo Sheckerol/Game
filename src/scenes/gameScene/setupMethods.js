@@ -196,6 +196,7 @@ const setupMethods = {
       .setDepth(4);
 
     this.dummyHpGfx = this.add.graphics().setDepth(4);
+    this.dummyRangeGfx = this.add.graphics().setDepth(1);
     this._updateDummyHp();
 
     this.enemyMarker = this.add

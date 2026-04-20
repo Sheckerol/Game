@@ -28,6 +28,7 @@ const renderAndUpdateMethods = {
 
   _updateDummyHp() {
     this.dummyHpGfx.clear();
+    this.dummyRangeGfx.clear();
     if (!this.dummy.alive) return;
 
     this._drawCharacterHp(
@@ -40,6 +41,9 @@ const renderAndUpdateMethods = {
     );
 
     this.dummyLabel.setPosition(this.dummyRect.x, this.dummyRect.y - TILE / 2 - 8);
+
+    this.dummyRangeGfx.lineStyle(1.5, 0xff8844, 0.35);
+    this.dummyRangeGfx.strokeCircle(this.dummyRect.x, this.dummyRect.y, this.dummy.weapon.range + this.dummy.halfSize);
   },
 
   _syncHpGraphics() {
@@ -127,7 +131,6 @@ const renderAndUpdateMethods = {
         this._drawRange();
         this._drawAttackRange();
         this._updateDummyOutline();
-        if (active.distLeft <= 0) this._onActiveCharExhausted();
       }
     }
 
@@ -197,6 +200,7 @@ const renderAndUpdateMethods = {
     this.dummyRect.setVisible(vis);
     this.dummyLabel.setVisible(vis);
     this.dummyHpGfx.setVisible(vis);
+    this.dummyRangeGfx.setVisible(vis);
   },
 
   _drawAttackRange() {
