@@ -154,6 +154,7 @@ const setupMethods = {
     });
 
     this.activeIdx = 0;
+    this._applyActiveDepth();
 
     this.dummy = {
       hp: DUMMY_HP,

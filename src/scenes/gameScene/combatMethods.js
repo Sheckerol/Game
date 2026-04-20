@@ -11,6 +11,16 @@ const combatMethods = {
     return this.chars[this.activeIdx];
   },
 
+  _applyActiveDepth() {
+    for (let i = 0; i < this.chars.length; i++) {
+      const c = this.chars[i];
+      if (!c.alive) continue;
+      const isActive = i === this.activeIdx;
+      c.sprite.setDepth(isActive ? 8 : 6);
+      c.hpGfx.setDepth(isActive ? 9 : 7);
+    }
+  },
+
   _setActiveChar(idx) {
     if (idx === this.activeIdx) return;
     const next = this.chars[idx];
@@ -30,6 +40,7 @@ const combatMethods = {
     this._drawAttackRange();
     this._updateDummyOutline();
     this._refreshCharSelector();
+    this._applyActiveDepth();
   },
 
   _distLabel() {
@@ -371,6 +382,7 @@ const combatMethods = {
         this._drawRange();
         this._drawAttackRange();
         this._updateDummyOutline();
+        this._applyActiveDepth();
       }
     }
   },
@@ -409,6 +421,7 @@ const combatMethods = {
     this._drawRange();
     this._drawAttackRange();
     this._updateDummyOutline();
+    this._applyActiveDepth();
   },
 
   _resurrectDummy() {
