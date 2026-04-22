@@ -27,7 +27,7 @@ function mulberry32(seed) {
 
 const CHAR_COLORS = [0xe94560, 0x3b8eff, 0x44cc66, 0xffdd44];
 const CHAR_IDS = ['A', 'B', 'C', 'D'];
-const CHAR_STARTING_WEAPON_IDX = [0, 1, 2, 2];
+const CHAR_STARTING_WEAPON_IDX = [0, 1, 2, 3];
 
 const setupMethods = {
   create() {
@@ -143,10 +143,12 @@ const setupMethods = {
         lastY: sprite.y,
         lastFogTile: { r: -1, c: -1 },
         alive: true,
+        regenStrength: 0,
       };
 
       sprite.on('pointerdown', () => {
         this.justAttacked = true;
+        if (this._tryCastSupport(char)) return;
         this._setActiveChar(i);
       });
 

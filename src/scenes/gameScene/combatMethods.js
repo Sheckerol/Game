@@ -61,9 +61,14 @@ const combatMethods = {
         if (a.type === 'block') return `Block ${a.value}`;
         if (a.type === 'crit_range') return `Crit +${a.value}`;
         if (a.type === 'brace') return 'Brace';
+        if (a.type === 'regen') return `Regen +${a.value}`;
         return a.type;
       })
       .join('  ');
+  },
+
+  _isSupportWeapon(weapon) {
+    return !!weapon?.abilities?.some(a => a.type === 'regen');
   },
 
   _getAbility(type) {
@@ -395,6 +400,8 @@ const combatMethods = {
       this._resurrectDummy();
     }
 
+    this._applyRegenTicks();
+
     this.braceTriggered = false;
     for (const c of this.chars) {
       if (!c.alive) continue;
@@ -467,8 +474,49 @@ const combatMethods = {
     if (!c.alive) return false;
     const w = c.inventory[0];
     if (!w) return false;
+    if (this._isSupportWeapon(w)) return false;
     if (c.distLeft < w.cost) return false;
     return this._charInAttackRange(c, w);
+  },
+
+  _canCastSupport(targetChar) {
+    const caster = this._activeChar();
+    if (!caster || !caster.alive || !targetChar || !targetChar.alive) return false;
+    if (this.turnEnding || this.inventoryOpen) return false;
+    const w = caster.inventory[0];
+    if (!this._isSupportWeapon(w)) return false;
+    if (caster.distLeft < w.cost) return false;
+    if (caster === targetChar) return true;
+    const d = Phaser.Math.Distance.Between(caster.sprite.x, caster.sprite.y, targetChar.sprite.x, targetChar.sprite.y);
+    if (d - PLAYER_HALF - PLAYER_HALF > w.range) return false;
+    return this._hasLineOfSight(caster.sprite.x, caster.sprite.y, targetChar.sprite.x, targetChar.sprite.y);
+  },
+
+  _tryCastSupport(targetChar) {
+    if (!this._canCastSupport(targetChar)) return false;
+    const caster = this._activeChar();
+    const w = caster.inventory[0];
+    const regen = w.abilities.find(a => a.type === 'regen');
+    caster.distLeft = Math.max(0, caster.distLeft - w.cost);
+    targetChar.regenStrength = (targetChar.regenStrength ?? 0) + regen.value;
+    this._showFloatingText(targetChar.sprite.x, targetChar.sprite.y - 40, `Regen ${targetChar.regenStrength}`, '#44ff88');
+    this.movesText.setText(this._distLabel());
+    this._drawRange();
+    this._drawAttackRange();
+    return true;
+  },
+
+  _applyRegenTicks() {
+    for (const c of this.chars) {
+      if (!c.alive) continue;
+      if (!c.regenStrength || c.regenStrength <= 0) continue;
+      const heal = Math.min(c.regenStrength, c.maxHp - c.hp);
+      if (heal > 0) {
+        c.hp += heal;
+        this._showFloatingText(c.sprite.x, c.sprite.y + 24, `+${heal} HP`, '#44ff88');
+      }
+      c.regenStrength -= 1;
+    }
   },
 
   _tryAttack() {

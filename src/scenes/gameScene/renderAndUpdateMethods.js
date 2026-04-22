@@ -53,12 +53,21 @@ const renderAndUpdateMethods = {
       c.hpGfx.clear();
       if (!c.alive) continue;
       this._drawCharacterHp(c.hpGfx, c.sprite.x, c.sprite.y, PLAYER_HALF, c.hp / c.maxHp, 0x3b8eff);
+      if (c.regenStrength > 0) this._drawRegenIndicator(c);
       if (c === active) {
         c.hpGfx.lineStyle(2, 0xffffff, 0.9);
         c.hpGfx.strokeCircle(c.sprite.x, c.sprite.y, PLAYER_HALF + 2);
       }
     }
     if (this.enemyMoving && this.dummy.alive) this._updateDummyHp();
+  },
+
+  _drawRegenIndicator(char) {
+    const hpRadius = PLAYER_HALF - 3.5;
+    char.hpGfx.lineStyle(2, 0x44ff88, 0.95);
+    char.hpGfx.beginPath();
+    char.hpGfx.arc(char.sprite.x, char.sprite.y, hpRadius, 0, Math.PI, false);
+    char.hpGfx.strokePath();
   },
 
   _updateDummyOutline() {
@@ -205,13 +214,15 @@ const renderAndUpdateMethods = {
 
   _drawAttackRange() {
     this.atkRangeGfx.clear();
-    if (!this.dummy.alive) return;
     const active = this._activeChar();
     if (!active || !active.alive) return;
     const w = active.inventory[0];
     if (!w) return;
 
-    this.atkRangeGfx.lineStyle(1.5, 0xff4444, 0.5);
+    const isSupport = w.abilities?.some(a => a.type === 'regen');
+    if (!isSupport && !this.dummy.alive) return;
+
+    this.atkRangeGfx.lineStyle(1.5, isSupport ? 0x44ff88 : 0xff4444, 0.5);
     this.atkRangeGfx.strokeCircle(active.sprite.x, active.sprite.y, w.range + PLAYER_HALF);
   },
 

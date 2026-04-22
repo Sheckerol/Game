@@ -14,6 +14,7 @@ export const WEAPONS = [
   { name: 'Dagger', range: 40, damage: 15, cost: 30, abilities: [{ type: 'crit_range', value: 4 }] },
   { name: 'Sword', range: 80, damage: 10, cost: 50, abilities: [{ type: 'block', value: 3 }] },
   { name: 'Spear', range: 130, damage: 7, cost: 40, abilities: [{ type: 'brace', value: 1 }] },
+  { name: 'Staff', range: 500, damage: 0, cost: 40, abilities: [{ type: 'regen', value: 1 }] },
 ];
 
 export const PLAYER_HP = 100;
