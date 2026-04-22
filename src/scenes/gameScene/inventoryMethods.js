@@ -1,5 +1,3 @@
-﻿import { WEAPONS } from './constants.js';
-
 const inventoryMethods = {
   _buildInventoryPanel() {
     const cx = this.W / 2;
@@ -13,12 +11,12 @@ const inventoryMethods = {
 
     this.invSlotX = cx;
     this.invSlotYs = [panelTop + 90, panelTop + 190, panelTop + 260];
-
-    this.invSlotWeapons = [this.equippedWeapon, ...WEAPONS.filter(w => w !== this.equippedWeapon)];
+    this.invCardW = cardW;
+    this.invCardH = cardH;
 
     const overlay = this.add.rectangle(cx, this.H / 2, this.W, this.H, 0x000000, 0.65).setScrollFactor(SF).setDepth(D).setInteractive();
     const panelBg = this.add.rectangle(cx, this.H / 2, panelW, panelH, 0x1a1a2e).setStrokeStyle(2, 0x4fc3f7).setScrollFactor(SF).setDepth(D);
-    const title = this.add
+    this.invTitle = this.add
       .text(cx, panelTop + 26, 'INVENTORY', {
         fontSize: '20px',
         color: '#4fc3f7',
@@ -75,71 +73,22 @@ const inventoryMethods = {
       this._closeInventory();
     });
 
-    this.invCards = [];
-    this.invCardsByWeapon = new Map();
-
-    WEAPONS.forEach(weapon => {
-      const si = this.invSlotWeapons.indexOf(weapon);
-      const sx = cx;
-      const sy = si >= 0 ? this.invSlotYs[si] : -200;
-
-      const cardBg = this.add
-        .rectangle(sx, sy, cardW, cardH, 0x2a2a4a)
-        .setStrokeStyle(1, 0x4466aa)
-        .setScrollFactor(SF)
-        .setDepth(D + 1)
-        .setInteractive();
-
-      const nameText = this.add
-        .text(sx - cardW / 2 + 12, sy - 10, weapon.name, {
-          fontSize: '15px',
-          color: '#ffffff',
-          stroke: '#000000',
-          strokeThickness: 2,
-        })
-        .setOrigin(0, 0.5)
-        .setScrollFactor(SF)
-        .setDepth(D + 2);
-
-      const statsText = this.add
-        .text(sx + cardW / 2 - 10, sy + 10, `Rng:${weapon.range}  Dmg:${weapon.damage}  Cost:${weapon.cost}`, {
-          fontSize: '11px',
-          color: '#aaaacc',
-        })
-        .setOrigin(1, 0.5)
-        .setScrollFactor(SF)
-        .setDepth(D + 2);
-
-      const abilityText = this.add
-        .text(sx - cardW / 2 + 12, sy + 10, this._abilityLabel(weapon), {
-          fontSize: '11px',
-          color: '#ffdd88',
-        })
-        .setOrigin(0, 0.5)
-        .setScrollFactor(SF)
-        .setDepth(D + 2);
-
-      const card = { bg: cardBg, nameText, statsText, abilityText, weapon };
-      this.invCards.push(card);
-      this.invCardsByWeapon.set(weapon, card);
-
-      cardBg.on('pointerdown', ptr => {
-        this.justAttacked = true;
-        this._startCardDrag(card, ptr);
-      });
+    this.invShellElements = [overlay, panelBg, this.invTitle, equippedLabel, divGfx, bagLabel, ...this.invSlotBgs, closeBtn];
+    this.invShellElements.forEach(el => {
+      this._addUi(el);
+      el.setVisible(false);
     });
 
-    this.invElements = [
-      overlay,
-      panelBg,
-      title,
-      equippedLabel,
-      divGfx,
-      bagLabel,
-      ...this.invSlotBgs,
-      closeBtn,
-      ...this.invCards.flatMap(c => [c.bg, c.nameText, c.statsText, c.abilityText]),
-    ];
+    this.invAllCards = [];
+    for (const char of this.chars) {
+      for (const weapon of char.inventory) {
+        if (!weapon) continue;
+        const card = this._buildWeaponCard(char, weapon, cx, cardW, SF, D);
+        char.invCards.push(card);
+        char.invCardsByWeapon.set(weapon, card);
+        this.invAllCards.push(card);
+      }
+    }
 
     this.dragCard = null;
     this.dragFromSlot = -1;
@@ -151,10 +100,64 @@ const inventoryMethods = {
       if (this.dragCard && this.inventoryOpen) this._endCardDrag(ptr);
     });
 
-    this.invElements.forEach(el => {
-      this._addUi(el);
-      el.setVisible(false);
+    this.invAllCards.forEach(card => {
+      [card.bg, card.nameText, card.statsText, card.abilityText].forEach(el => {
+        this._addUi(el);
+        el.setVisible(false);
+      });
     });
+  },
+
+  _buildWeaponCard(char, weapon, cx, cardW, SF, D) {
+    const si = char.inventory.indexOf(weapon);
+    const sx = cx;
+    const sy = si >= 0 ? this.invSlotYs[si] : -200;
+
+    const cardBg = this.add
+      .rectangle(sx, sy, cardW, this.invCardH, 0x2a2a4a)
+      .setStrokeStyle(1, 0x4466aa)
+      .setScrollFactor(SF)
+      .setDepth(D + 1)
+      .setInteractive();
+
+    const nameText = this.add
+      .text(sx - cardW / 2 + 12, sy - 10, weapon.name, {
+        fontSize: '15px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0, 0.5)
+      .setScrollFactor(SF)
+      .setDepth(D + 2);
+
+    const statsText = this.add
+      .text(sx + cardW / 2 - 10, sy + 10, `Rng:${weapon.range}  Dmg:${weapon.damage}  Cost:${weapon.cost}`, {
+        fontSize: '11px',
+        color: '#aaaacc',
+      })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(SF)
+      .setDepth(D + 2);
+
+    const abilityText = this.add
+      .text(sx - cardW / 2 + 12, sy + 10, this._abilityLabel(weapon), {
+        fontSize: '11px',
+        color: '#ffdd88',
+      })
+      .setOrigin(0, 0.5)
+      .setScrollFactor(SF)
+      .setDepth(D + 2);
+
+    const card = { bg: cardBg, nameText, statsText, abilityText, weapon, char };
+
+    cardBg.on('pointerdown', () => {
+      if (this.chars[this.activeIdx] !== char) return;
+      this.justAttacked = true;
+      this._startCardDrag(card);
+    });
+
+    return card;
   },
 
   _startCardDrag(card) {
@@ -168,7 +171,7 @@ const inventoryMethods = {
 
   _updateCardDrag(ptr) {
     const card = this.dragCard;
-    const cardW = 340;
+    const cardW = this.invCardW;
     card.bg.setPosition(ptr.x, ptr.y);
     card.nameText.setPosition(ptr.x - cardW / 2 + 12, ptr.y - 10);
     card.statsText.setPosition(ptr.x + cardW / 2 - 10, ptr.y + 10);
@@ -178,12 +181,14 @@ const inventoryMethods = {
   _endCardDrag(ptr) {
     const card = this.dragCard;
     this.dragCard = null;
-    const cardW = 340;
-    const cardH = 58;
+    const cardW = this.invCardW;
+    const cardH = this.invCardH;
 
     const targetSlot = this.invSlotYs.findIndex(
       sy => Math.abs(ptr.x - this.invSlotX) < cardW / 2 && Math.abs(ptr.y - sy) < cardH / 2
     );
+
+    const prevEquipped = this.invSlotWeapons[0];
 
     if (targetSlot >= 0 && targetSlot !== this.dragFromSlot) {
       const from = this.dragFromSlot;
@@ -196,8 +201,8 @@ const inventoryMethods = {
       this._moveCardToSlot(this.invCardsByWeapon.get(weaponA), targetSlot);
       if (weaponB) this._moveCardToSlot(this.invCardsByWeapon.get(weaponB), from);
 
-      if (this.invSlotWeapons[0] !== this.equippedWeapon) {
-        this._equipWeapon(this.invSlotWeapons[0]);
+      if (this.invSlotWeapons[0] !== prevEquipped) {
+        this._onEquipChanged();
       }
     } else {
       this._moveCardToSlot(card, this.dragFromSlot);
@@ -209,7 +214,7 @@ const inventoryMethods = {
   _moveCardToSlot(card, slotIdx) {
     const sx = this.invSlotX;
     const sy = this.invSlotYs[slotIdx];
-    const cardW = 340;
+    const cardW = this.invCardW;
     card.bg.setPosition(sx, sy).setDepth(26);
     card.nameText.setPosition(sx - cardW / 2 + 12, sy - 10).setDepth(27);
     card.statsText.setPosition(sx + cardW / 2 - 10, sy + 10).setDepth(27);
@@ -217,38 +222,49 @@ const inventoryMethods = {
   },
 
   _openInventory() {
-    const ei = this.invSlotWeapons.indexOf(this.equippedWeapon);
-    if (ei > 0) {
-      const displaced = this.invSlotWeapons[0];
-      this.invSlotWeapons[0] = this.equippedWeapon;
-      this.invSlotWeapons[ei] = displaced;
-      this._moveCardToSlot(this.invCardsByWeapon.get(this.equippedWeapon), 0);
-      if (displaced) this._moveCardToSlot(this.invCardsByWeapon.get(displaced), ei);
+    const active = this._activeChar();
+    this.invSlotWeapons = active.inventory;
+    this.invCardsByWeapon = active.invCardsByWeapon;
+    this.invTitle.setText(`INVENTORY \u2014 Char ${active.id}`);
+
+    // Move the active char's cards to their current slot positions (others stay offscreen)
+    for (const card of this.invAllCards) {
+      const visible = card.char === active && active.inventory.includes(card.weapon);
+      [card.bg, card.nameText, card.statsText, card.abilityText].forEach(el => el.setVisible(visible));
+      if (visible) {
+        const slot = active.inventory.indexOf(card.weapon);
+        if (slot >= 0) this._moveCardToSlot(card, slot);
+      }
     }
+
+    this.invShellElements.forEach(el => el.setVisible(true));
     this._refreshInvHighlights();
-    this.invElements.forEach(el => el.setVisible(true));
     this.inventoryOpen = true;
   },
 
   _closeInventory() {
-    this.invElements.forEach(el => el.setVisible(false));
+    this.invShellElements.forEach(el => el.setVisible(false));
+    for (const card of this.invAllCards) {
+      [card.bg, card.nameText, card.statsText, card.abilityText].forEach(el => el.setVisible(false));
+    }
     this.inventoryOpen = false;
   },
 
-  _equipWeapon(weapon) {
-    this.equippedWeapon = weapon;
+  _onEquipChanged() {
     this.weaponText.setText(this._weaponLabel());
     this._drawAttackRange();
     this._updateDummyOutline();
   },
 
   _refreshInvHighlights() {
-    this.invCards.forEach(card => {
-      const equipped = card.weapon === this.equippedWeapon;
-      card.bg.setFillStyle(equipped ? 0x334488 : 0x2a2a4a);
-      card.bg.setStrokeStyle(equipped ? 2 : 1, equipped ? 0x4fc3f7 : 0x4466aa);
-      card.nameText.setColor(equipped ? '#ffdd00' : '#ffffff');
-    });
+    const equipped = this.invSlotWeapons[0];
+    for (const card of this.invAllCards) {
+      if (card.char !== this._activeChar()) continue;
+      const isEq = card.weapon === equipped;
+      card.bg.setFillStyle(isEq ? 0x334488 : 0x2a2a4a);
+      card.bg.setStrokeStyle(isEq ? 2 : 1, isEq ? 0x4fc3f7 : 0x4466aa);
+      card.nameText.setColor(isEq ? '#ffdd00' : '#ffffff');
+    }
   },
 };
 

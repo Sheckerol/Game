@@ -25,11 +25,15 @@ function mulberry32(seed) {
   };
 }
 
+const CHAR_COLORS = [0xe94560, 0x3b8eff, 0x44cc66, 0xffdd44];
+const CHAR_IDS = ['A', 'B', 'C', 'D'];
+const CHAR_STARTING_WEAPON_IDX = [0, 1, 2, 2];
+
 const setupMethods = {
   create() {
     this.uiElements = [];
     this._setupMap();
-    this._setupPlayerAndDummy();
+    this._setupPartyAndDummy();
     this._setupTurnAndCombatState();
     this._setupCameraAndUi();
     this._setupControls();
@@ -103,15 +107,54 @@ const setupMethods = {
     this._losLine = new Phaser.Geom.Line();
   },
 
-  _setupPlayerAndDummy() {
-    this.player = this.add
-      .circle(this.playerStart[1] * TILE + TILE / 2, this.playerStart[0] * TILE + TILE / 2, PLAYER_HALF, 0xe94560)
-      .setDepth(6);
-    this.physics.add.existing(this.player);
-    this.player.body.setCircle(PLAYER_HALF);
-    this.player.body.setCollideWorldBounds(true);
-    this.physics.add.collider(this.player, this.wallGroup);
+  _setupPartyAndDummy() {
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
+
+    const startR = this.playerStart[0];
+    const startC = this.playerStart[1];
+    const tiles = this._findPartySpawnTiles(startR, startC, 4);
+
+    this.chars = tiles.map((t, i) => {
+      const sprite = this.add
+        .circle(t.c * TILE + TILE / 2, t.r * TILE + TILE / 2, PLAYER_HALF, CHAR_COLORS[i])
+        .setDepth(6)
+        .setInteractive();
+      this.physics.add.existing(sprite);
+      sprite.body.setCircle(PLAYER_HALF);
+      sprite.body.setCollideWorldBounds(true);
+      sprite.body.pushable = false;
+      this.physics.add.collider(sprite, this.wallGroup);
+
+      const weapon = WEAPONS[CHAR_STARTING_WEAPON_IDX[i]];
+      const char = {
+        id: CHAR_IDS[i],
+        color: CHAR_COLORS[i],
+        sprite,
+        hpGfx: this.add.graphics().setDepth(7),
+        hp: PLAYER_HP,
+        maxHp: PLAYER_HP,
+        inventory: [weapon, null, null],
+        invCards: [],
+        invCardsByWeapon: new Map(),
+        distLeft: MAX_DISTANCE,
+        effectiveMax: MAX_DISTANCE,
+        savedMovement: 0,
+        lastX: sprite.x,
+        lastY: sprite.y,
+        lastFogTile: { r: -1, c: -1 },
+        alive: true,
+      };
+
+      sprite.on('pointerdown', () => {
+        this.justAttacked = true;
+        this._setActiveChar(i);
+      });
+
+      return char;
+    });
+
+    this.activeIdx = 0;
+    this._applyActiveDepth();
 
     this.dummy = {
       hp: DUMMY_HP,
@@ -129,7 +172,7 @@ const setupMethods = {
     this.physics.add.existing(this.dummyRect);
     this.dummyRect.body.setCircle(this.dummy.halfSize);
     this.dummyRect.body.pushable = false;
-    this.physics.add.collider(this.player, this.dummyRect);
+    for (const c of this.chars) this.physics.add.collider(c.sprite, this.dummyRect);
     this.physics.add.collider(this.dummyRect, this.wallGroup);
 
     this.justAttacked = false;
@@ -149,6 +192,7 @@ const setupMethods = {
       .setDepth(4);
 
     this.dummyHpGfx = this.add.graphics().setDepth(4);
+    this.dummyRangeGfx = this.add.graphics().setDepth(1);
     this._updateDummyHp();
 
     this.enemyMarker = this.add
@@ -167,19 +211,9 @@ const setupMethods = {
 
   _setupTurnAndCombatState() {
     this.turnCount = 0;
-    this.distLeft = MAX_DISTANCE;
-    this.effectiveMax = MAX_DISTANCE;
-    this.savedMovement = 0;
     this.turnEnding = false;
     this.enemyMoving = false;
     this.braceTriggered = false;
-    this.lastX = this.player.x;
-    this.lastY = this.player.y;
-
-    this.playerHp = PLAYER_HP;
-    this.playerMaxHp = PLAYER_HP;
-
-    this.equippedWeapon = WEAPONS[1];
     this.inventoryOpen = false;
 
     this.rangeGfx = this.add.graphics().setDepth(1);
@@ -189,7 +223,7 @@ const setupMethods = {
   },
 
   _setupCameraAndUi() {
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    this.cameras.main.startFollow(this.chars[0].sprite, true, 0.1, 0.1);
     this.cameras.main.setFollowOffset(0, -160);
     this.cameras.main.setBackgroundColor(FOG_COLOR);
 
@@ -220,8 +254,7 @@ const setupMethods = {
       .setScrollFactor(0)
       .setDepth(10));
 
-    this.playerHpGfx = this.add.graphics().setDepth(7);
-    this._drawPlayerHp();
+    this._syncHpGraphics();
     this.events.on('postupdate', this._syncHpGraphics, this);
 
     this.turnMsg = this._addUi(this.add
@@ -268,6 +301,62 @@ const setupMethods = {
       this.justAttacked = true;
       this.inventoryOpen ? this._closeInventory() : this._openInventory();
     });
+
+    this._buildCharacterSelector();
+  },
+
+  _buildCharacterSelector() {
+    const x = 30;
+    const y0 = 150;
+    const dy = 46;
+    const r = 16;
+
+    this.charSelectorButtons = this.chars.map((char, i) => {
+      const cy = y0 + i * dy;
+      const bg = this._addUi(
+        this.add
+          .circle(x, cy, r, char.color)
+          .setStrokeStyle(2, 0xffffff, 0.4)
+          .setScrollFactor(0)
+          .setDepth(10)
+          .setInteractive()
+      );
+      const label = this._addUi(
+        this.add
+          .text(x, cy, char.id, {
+            fontSize: '14px',
+            color: '#000000',
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5)
+          .setScrollFactor(0)
+          .setDepth(11)
+      );
+      bg.on('pointerdown', () => {
+        this.justAttacked = true;
+        if (char.alive) this._setActiveChar(i);
+      });
+      return { bg, label, char };
+    });
+
+    this._refreshCharSelector();
+  },
+
+  _refreshCharSelector() {
+    if (!this.charSelectorButtons) return;
+    for (let i = 0; i < this.charSelectorButtons.length; i++) {
+      const { bg, label, char } = this.charSelectorButtons[i];
+      if (!char.alive) {
+        bg.setFillStyle(0x555555);
+        bg.setStrokeStyle(1, 0x333333, 0.5);
+        label.setColor('#888888');
+        continue;
+      }
+      const isActive = i === this.activeIdx;
+      bg.setFillStyle(char.color);
+      bg.setStrokeStyle(isActive ? 3 : 2, isActive ? 0xffffff : 0xffffff, isActive ? 1 : 0.4);
+      label.setColor('#000000');
+    }
   },
 
   _addUi(obj) {
@@ -404,7 +493,9 @@ const setupMethods = {
     this.input.keyboard.on('keydown-P', () => this._toggleDebugMode());
 
     this._fogDirty = false;
-    this._updateFog(this.player.x, this.player.y, this.playerFog);
+    for (const c of this.chars) {
+      if (c.alive) this._updateFogForChar(c);
+    }
     this._redrawFog();
   },
 
@@ -450,6 +541,28 @@ const setupMethods = {
       inner.x + inner.w <= outer.x + outer.w &&
       inner.y + inner.h <= outer.y + outer.h
     );
+  },
+
+  _findPartySpawnTiles(startR, startC, count) {
+    const tiles = [{ r: startR, c: startC }];
+    const seen = new Set([`${startR},${startC}`]);
+    for (let ring = 1; tiles.length < count && ring < 8; ring++) {
+      for (let dr = -ring; dr <= ring && tiles.length < count; dr++) {
+        for (let dc = -ring; dc <= ring && tiles.length < count; dc++) {
+          if (Math.max(Math.abs(dr), Math.abs(dc)) !== ring) continue;
+          const r = startR + dr;
+          const c = startC + dc;
+          const key = `${r},${c}`;
+          if (seen.has(key)) continue;
+          if (r < 0 || c < 0 || r >= this.mapGrid.length || c >= this.mapGrid[0].length) continue;
+          if (this.mapGrid[r][c] !== 0) continue;
+          seen.add(key);
+          tiles.push({ r, c });
+        }
+      }
+    }
+    while (tiles.length < count) tiles.push({ r: startR, c: startC });
+    return tiles;
   },
 };
 

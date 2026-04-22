@@ -1,4 +1,4 @@
-﻿import {
+import {
   ENEMY_MOVE,
   MAX_DISTANCE,
   PLAYER_HALF,
@@ -7,14 +7,52 @@
 import { findPath } from './pathfinding.js';
 
 const combatMethods = {
+  _activeChar() {
+    return this.chars[this.activeIdx];
+  },
+
+  _applyActiveDepth() {
+    for (let i = 0; i < this.chars.length; i++) {
+      const c = this.chars[i];
+      if (!c.alive) continue;
+      const isActive = i === this.activeIdx;
+      c.sprite.setDepth(isActive ? 8 : 6);
+      c.hpGfx.setDepth(isActive ? 9 : 7);
+    }
+  },
+
+  _setActiveChar(idx) {
+    if (idx === this.activeIdx) return;
+    const next = this.chars[idx];
+    if (!next || !next.alive) return;
+    if (this.inventoryOpen && this.dragCard) return;
+
+    if (this.inventoryOpen) this._closeInventory();
+
+    this.activeIdx = idx;
+    const zoom = this.cameras.main.zoom || 1;
+    this.cameras.main.startFollow(next.sprite, true, 0.1, 0.1);
+    this.cameras.main.setFollowOffset(0, -160 / zoom);
+
+    this.movesText.setText(this._distLabel());
+    this.weaponText.setText(this._weaponLabel());
+    this._drawRange();
+    this._drawAttackRange();
+    this._updateDummyOutline();
+    this._refreshCharSelector();
+    this._applyActiveDepth();
+  },
+
   _distLabel() {
-    return `Move: ${Math.ceil(this.distLeft)} / ${this.effectiveMax}`;
+    const c = this._activeChar();
+    return `[${c.id}] Move: ${Math.ceil(c.distLeft)} / ${c.effectiveMax}`;
   },
 
   _weaponLabel() {
-    const w = this.equippedWeapon;
+    const w = this._activeChar().inventory[0];
+    if (!w) return `[${this._activeChar().id}] (no weapon)`;
     const abl = this._abilityLabel(w);
-    return `${w.name}  Dmg:${w.damage}  Rng:${w.range}  Cost:${w.cost}${abl ? '  ◆ ' + abl : ''}`;
+    return `[${this._activeChar().id}] ${w.name}  Dmg:${w.damage}  Rng:${w.range}  Cost:${w.cost}${abl ? '  \u25c6 ' + abl : ''}`;
   },
 
   _abilityLabel(weapon) {
@@ -29,7 +67,8 @@ const combatMethods = {
   },
 
   _getAbility(type) {
-    return this.equippedWeapon.abilities?.find(a => a.type === type) ?? null;
+    const w = this._activeChar().inventory[0];
+    return w?.abilities?.find(a => a.type === type) ?? null;
   },
 
   _rollAttackWith(weapon) {
@@ -70,10 +109,11 @@ const combatMethods = {
     return { damage };
   },
 
-  _playerInAttackRange() {
-    const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y);
-    if (d - PLAYER_HALF - this.dummy.halfSize > this.equippedWeapon.range) return false;
-    return this._hasLineOfSight(this.player.x, this.player.y, this.dummyRect.x, this.dummyRect.y);
+  _charInAttackRange(char, weapon) {
+    if (!weapon) return false;
+    const d = Phaser.Math.Distance.Between(char.sprite.x, char.sprite.y, this.dummyRect.x, this.dummyRect.y);
+    if (d - PLAYER_HALF - this.dummy.halfSize > weapon.range) return false;
+    return this._hasLineOfSight(char.sprite.x, char.sprite.y, this.dummyRect.x, this.dummyRect.y);
   },
 
   _hasLineOfSight(x1, y1, x2, y2) {
@@ -81,18 +121,57 @@ const combatMethods = {
     return !this.wallRects.some(r => Phaser.Geom.Intersects.LineToRectangle(this._losLine, r));
   },
 
+  _selectEnemyTarget() {
+    const alive = this.chars.filter(c => c.alive);
+    if (alive.length === 0) return null;
+
+    const weapon = this.dummy.weapon;
+    const inRangeLos = alive.filter(c => this._dummyCanHit(c, weapon));
+    const withLos = inRangeLos.length > 0
+      ? inRangeLos
+      : alive.filter(c => this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, c.sprite.x, c.sprite.y));
+    const pool = inRangeLos.length > 0 ? inRangeLos : (withLos.length > 0 ? withLos : alive);
+
+    let best = pool[0];
+    let bestDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, best.sprite.x, best.sprite.y);
+    for (let i = 1; i < pool.length; i++) {
+      const d = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, pool[i].sprite.x, pool[i].sprite.y);
+      if (d < bestDist) {
+        best = pool[i];
+        bestDist = d;
+      }
+    }
+    return best;
+  },
+
+  _dummyCanHit(char, weapon) {
+    const d = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, char.sprite.x, char.sprite.y);
+    if (d - PLAYER_HALF - this.dummy.halfSize > weapon.range) return false;
+    return this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, char.sprite.x, char.sprite.y);
+  },
+
   _endTurnManual() {
     if (this.turnEnding) return;
-    const save = Math.min(Math.floor(this.distLeft / 2), MAX_DISTANCE / 2);
-    this.savedMovement = save;
-    const msg = save > 0 ? `End of Turn!\n+${save} saved` : 'End of Turn!';
+    let totalSaved = 0;
+    for (const c of this.chars) {
+      if (!c.alive) {
+        c.savedMovement = 0;
+        continue;
+      }
+      const save = Math.min(Math.floor(c.distLeft / 2), MAX_DISTANCE / 2);
+      c.savedMovement = save;
+      totalSaved += save;
+    }
+    const msg = totalSaved > 0 ? `End of Turn!\n+${totalSaved} saved` : 'End of Turn!';
     this.turnMsg.setText(msg);
     this._endTurn();
   },
 
   _endTurn() {
     this.turnEnding = true;
-    this.player.body.setVelocity(0, 0);
+    for (const c of this.chars) {
+      if (c.sprite.body) c.sprite.body.setVelocity(0, 0);
+    }
 
     this._resetFogVisibility();
     this._updateEnemyVisibility();
@@ -110,61 +189,62 @@ const combatMethods = {
       return;
     }
 
-    // Track visibility — reset if seen at any point during the player's turn
     if (this._enemySeenThisTurn) {
       this.dummy.turnsSinceSeen = 0;
     } else {
       this.dummy.turnsSinceSeen++;
     }
 
-    // If enemy hasn't seen the player for 2+ turns, skip movement
     if (this.dummy.turnsSinceSeen >= 2) {
       this._enemyAttackPhase();
       return;
     }
 
-    const brace = this._getAbility('brace');
-    const wasInRange = this._playerInAttackRange();
+    const target = this._selectEnemyTarget();
+    if (!target) {
+      this._enemyAttackPhase();
+      return;
+    }
+
+    const targetWeapon = target.inventory[0];
+    const brace = targetWeapon?.abilities?.find(a => a.type === 'brace') ?? null;
+    const wasInRange = this._charInAttackRange(target, targetWeapon);
 
     this._enemyBudget = ENEMY_MOVE;
 
     const afterMove = () => {
-      if (brace && !this.braceTriggered && !wasInRange && this._playerInAttackRange()) {
+      const t2 = this._selectEnemyTarget();
+      if (brace && !this.braceTriggered && !wasInRange && t2 === target && this._charInAttackRange(target, targetWeapon)) {
         this.braceTriggered = true;
-        this._doBraceAttack();
+        this._doBraceAttack(target);
       }
       if (this.dummy.alive) this._enemyAttackPhase();
       else this.time.delayedCall(400, () => this._startPlayerTurn());
     };
 
-    // Already in attack range — skip movement
     const enemyWeapon = this.dummy.weapon;
-    const centerDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y);
+    const centerDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, target.sprite.x, target.sprite.y);
     if (
       centerDist - this.dummy.halfSize - PLAYER_HALF <= enemyWeapon.range &&
-      this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y)
+      this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, target.sprite.x, target.sprite.y)
     ) {
       afterMove();
       return;
     }
 
-    // Pathfind toward the player
     const enemyR = Math.floor(this.dummyRect.y / TILE);
     const enemyC = Math.floor(this.dummyRect.x / TILE);
-    const playerR = Math.floor(this.player.y / TILE);
-    const playerC = Math.floor(this.player.x / TILE);
+    const targetR = Math.floor(target.sprite.y / TILE);
+    const targetC = Math.floor(target.sprite.x / TILE);
 
-    // Calculate range in tiles (weapon range / tile size, at least 1)
     const weaponRangeTiles = Math.max(1, Math.floor(this.dummy.weapon.range / TILE));
-    const path = findPath(this.mapGrid, enemyR, enemyC, playerR, playerC, weaponRangeTiles);
+    const path = findPath(this.mapGrid, enemyR, enemyC, targetR, targetC, weaponRangeTiles);
 
     if (!path || path.length === 0) {
       afterMove();
       return;
     }
 
-    // Trim path to movement budget
-    // Steps are {r, c} tile coords; convert to {x, y} pixel targets
     let prevX = this.dummyRect.x;
     let prevY = this.dummyRect.y;
     const waypoints = [];
@@ -175,7 +255,6 @@ const combatMethods = {
       const dy = ty - prevY;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist > this._enemyBudget) {
-        // Partial step — use remaining budget
         if (this._enemyBudget > 1) {
           const frac = this._enemyBudget / dist;
           waypoints.push({ x: prevX + dx * frac, y: prevY + dy * frac });
@@ -246,31 +325,66 @@ const combatMethods = {
         return;
       }
 
-      const centerDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y);
-      if (
-        centerDist - this.dummy.halfSize - PLAYER_HALF > enemyWeapon.range ||
-        !this._hasLineOfSight(this.dummyRect.x, this.dummyRect.y, this.player.x, this.player.y)
-      ) {
+      const alive = this.chars.filter(c => c.alive);
+      const hittable = alive.filter(c => this._dummyCanHit(c, enemyWeapon));
+      if (hittable.length === 0) {
         this.time.delayedCall(500, () => this._startPlayerTurn());
         return;
       }
 
-      this._enemyBudget -= scaledCost;
-      const { damage } = this._resolveAttack(this.dummy.weapon, this.equippedWeapon, this.player.x, this.player.y);
-
-      this.playerHp = Math.max(0, this.playerHp - damage);
-      this._drawPlayerHp();
-
-      if (this.playerHp <= 0) {
-        this.time.delayedCall(1000, () => this._gameOver());
-        return;
+      let target = hittable[0];
+      let bestDist = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, target.sprite.x, target.sprite.y);
+      for (let i = 1; i < hittable.length; i++) {
+        const d = Phaser.Math.Distance.Between(this.dummyRect.x, this.dummyRect.y, hittable[i].sprite.x, hittable[i].sprite.y);
+        if (d < bestDist) {
+          target = hittable[i];
+          bestDist = d;
+        }
       }
 
-      // Try another attack after a short delay
+      this._enemyBudget -= scaledCost;
+      const { damage } = this._resolveAttack(this.dummy.weapon, target.inventory[0], target.sprite.x, target.sprite.y);
+
+      target.hp = Math.max(0, target.hp - damage);
+
+      if (target.hp <= 0) {
+        this._killChar(target);
+        if (this.chars.every(c => !c.alive)) {
+          this.time.delayedCall(1000, () => this._gameOver());
+          return;
+        }
+      }
+
       this.time.delayedCall(500, tryAttack);
     };
 
     tryAttack();
+  },
+
+  _killChar(char) {
+    const deadIdx = this.chars.indexOf(char);
+    char.alive = false;
+    char.sprite.setFillStyle(0x555555);
+    char.sprite.setDepth(2);
+    if (char.sprite.body) char.sprite.body.setEnable(false);
+    char.sprite.disableInteractive();
+    char.hpGfx.clear();
+    this._refreshCharSelector();
+    if (this.activeIdx === deadIdx) {
+      const nextAlive = this.chars.findIndex(c => c.alive);
+      if (nextAlive >= 0) {
+        this.activeIdx = nextAlive;
+        const zoom = this.cameras.main.zoom || 1;
+        this.cameras.main.startFollow(this.chars[nextAlive].sprite, true, 0.1, 0.1);
+        this.cameras.main.setFollowOffset(0, -160 / zoom);
+        this.movesText.setText(this._distLabel());
+        this.weaponText.setText(this._weaponLabel());
+        this._drawRange();
+        this._drawAttackRange();
+        this._updateDummyOutline();
+        this._applyActiveDepth();
+      }
+    }
   },
 
   _startPlayerTurn() {
@@ -281,17 +395,33 @@ const combatMethods = {
       this._resurrectDummy();
     }
 
-    const bonus = this.savedMovement;
-    this.savedMovement = 0;
     this.braceTriggered = false;
-    this.effectiveMax = MAX_DISTANCE + bonus;
-    this.distLeft = this.effectiveMax;
+    for (const c of this.chars) {
+      if (!c.alive) continue;
+      const bonus = c.savedMovement;
+      c.savedMovement = 0;
+      c.effectiveMax = MAX_DISTANCE + bonus;
+      c.distLeft = c.effectiveMax;
+    }
     this.turnEnding = false;
     this.turnMsg.setText('End of Turn!');
+
+    if (!this._activeChar().alive) {
+      const nextAlive = this.chars.findIndex(c => c.alive);
+      if (nextAlive >= 0) {
+        this.activeIdx = nextAlive;
+        const zoom = this.cameras.main.zoom || 1;
+        this.cameras.main.startFollow(this.chars[nextAlive].sprite, true, 0.1, 0.1);
+        this.cameras.main.setFollowOffset(0, -160 / zoom);
+      }
+    }
+
     this.movesText.setText(this._distLabel());
+    this.weaponText.setText(this._weaponLabel());
     this._drawRange();
     this._drawAttackRange();
     this._updateDummyOutline();
+    this._applyActiveDepth();
   },
 
   _resurrectDummy() {
@@ -302,18 +432,6 @@ const combatMethods = {
     this.dummyRect.body.setEnable(true);
     this._updateDummyHp();
     this._updateEnemyVisibility();
-  },
-
-  _drawPlayerHp() {
-    this.playerHpGfx.clear();
-    this._drawCharacterHp(
-      this.playerHpGfx,
-      this.player.x,
-      this.player.y,
-      PLAYER_HALF,
-      this.playerHp / this.playerMaxHp,
-      0x3b8eff,
-    );
   },
 
   _gameOver() {
@@ -345,26 +463,31 @@ const combatMethods = {
 
   _canAttack() {
     if (!this.dummy.alive || this.turnEnding || this.inventoryOpen) return false;
-    if (this.distLeft < this.equippedWeapon.cost) return false;
-    return this._playerInAttackRange();
+    const c = this._activeChar();
+    if (!c.alive) return false;
+    const w = c.inventory[0];
+    if (!w) return false;
+    if (c.distLeft < w.cost) return false;
+    return this._charInAttackRange(c, w);
   },
 
   _tryAttack() {
     if (!this._canAttack()) return;
+    const c = this._activeChar();
+    const w = c.inventory[0];
 
-    this.distLeft = Math.max(0, this.distLeft - this.equippedWeapon.cost);
+    c.distLeft = Math.max(0, c.distLeft - w.cost);
     this.movesText.setText(this._distLabel());
     this._drawRange();
 
-    const { damage } = this._resolveAttack(this.equippedWeapon, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
+    const { damage } = this._resolveAttack(w, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
     this._applyDamageToDummy(damage);
-
-    if (this.distLeft <= 0) this._endTurn();
   },
 
-  _doBraceAttack() {
-    this._showFloatingText(this.player.x, this.player.y - 52, 'BRACE!', '#88ffff');
-    const { damage } = this._resolveAttack(this.equippedWeapon, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
+  _doBraceAttack(target) {
+    const w = target.inventory[0];
+    this._showFloatingText(target.sprite.x, target.sprite.y - 52, 'BRACE!', '#88ffff');
+    const { damage } = this._resolveAttack(w, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
     this._applyDamageToDummy(damage);
   },
 
