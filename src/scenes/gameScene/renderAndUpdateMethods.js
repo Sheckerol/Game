@@ -89,6 +89,74 @@ const renderAndUpdateMethods = {
     });
   },
 
+  _playSlashEffect(ax, ay, tx, ty) {
+    const dx = tx - ax;
+    const dy = ty - ay;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.0001) return;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const startX = ax + ux * 6;
+    const startY = ay + uy * 6;
+    const endX = tx - ux * 6;
+    const endY = ty - uy * 6;
+
+    const g = this.add.graphics().setDepth(19);
+    g.lineStyle(4, 0xffffff, 0.85);
+    g.beginPath();
+    g.moveTo(startX, startY);
+    g.lineTo(endX, endY);
+    g.strokePath();
+    g.lineStyle(2, 0xffeeaa, 0.95);
+    g.beginPath();
+    g.moveTo(startX, startY);
+    g.lineTo(endX, endY);
+    g.strokePath();
+
+    if (this.uiCam) this.uiCam.ignore(g);
+
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 180,
+      ease: 'Linear',
+      onComplete: () => g.destroy(),
+    });
+  },
+
+  _playHitReaction(target) {
+    if (!target) return;
+    const baseX = target.x;
+    const originalFill = target.fillColor;
+    if (typeof target.setFillStyle === 'function') {
+      target.setFillStyle(0xffffff);
+      this.time.delayedCall(80, () => {
+        if (target.active && typeof target.setFillStyle === 'function') {
+          target.setFillStyle(originalFill);
+        }
+      });
+    }
+    this.tweens.add({
+      targets: target,
+      x: baseX + 4,
+      duration: 40,
+      yoyo: true,
+      repeat: 3,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => {
+        if (target.body && typeof target.body.reset === 'function') {
+          target.body.reset(target.x, target.y);
+        }
+      },
+      onComplete: () => {
+        target.x = baseX;
+        if (target.body && typeof target.body.reset === 'function') {
+          target.body.reset(baseX, target.y);
+        }
+      },
+    });
+  },
+
   _updateFogForChar(char) {
     const tileR = Math.floor(char.sprite.y / TILE);
     const tileC = Math.floor(char.sprite.x / TILE);
@@ -116,7 +184,7 @@ const renderAndUpdateMethods = {
       }
     }
 
-    if (this.inventoryOpen) {
+    if (this.inventoryOpen || this.attackAnimating) {
       body.setVelocity(0, 0);
       return;
     }

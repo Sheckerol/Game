@@ -78,35 +78,125 @@ const combatMethods = {
     let damage = weapon.damage;
     let label = `-${damage}`;
     let color = '#ff4444';
+    let outcome = 'hit';
 
     if (roll >= critAt) {
       damage = weapon.damage * 2;
       label = `CRIT! -${damage}`;
       color = '#ffdd00';
+      outcome = 'crit';
     } else if (roll === 1) {
       damage = Math.max(1, Math.floor(weapon.damage / 2));
       label = `WEAK -${damage}`;
       color = '#aaaaaa';
+      outcome = 'miss';
     }
 
-    return { roll, damage, label, color };
+    return { roll, damage, label, color, outcome };
   },
 
-  _resolveAttack(attackerWeapon, defenderWeapon, defenderX, defenderY) {
-    const { roll, damage: rawDamage, label, color } = this._rollAttackWith(attackerWeapon);
-
-    let damage = rawDamage;
+  _rollResolvedAttack(attackerWeapon, defenderWeapon) {
+    const rolled = this._rollAttackWith(attackerWeapon);
+    let damage = rolled.damage;
+    let blockAmount = 0;
     const block = defenderWeapon?.abilities?.find(a => a.type === 'block');
     if (block && block.value > 0) {
-      const absorbed = Math.min(damage - 1, block.value);
-      damage -= absorbed;
-      this._showFloatingText(defenderX, defenderY - 48, `BLOCK ${absorbed}`, '#4fc3f7');
+      blockAmount = Math.min(damage - 1, block.value);
+      damage -= blockAmount;
+    }
+    return {
+      roll: rolled.roll,
+      damage,
+      label: rolled.label,
+      color: rolled.color,
+      outcome: rolled.outcome,
+      blockAmount,
+    };
+  },
+
+  _showAttackText(defenderX, defenderY, resolved) {
+    if (resolved.blockAmount > 0) {
+      this._showFloatingText(defenderX, defenderY - 48, `BLOCK ${resolved.blockAmount}`, '#4fc3f7');
+    }
+    this._showFloatingText(defenderX, defenderY - 28, `Roll: ${resolved.roll}`, '#ffffff');
+    this._showFloatingText(defenderX, defenderY + 8, resolved.label, resolved.color);
+  },
+
+  _playAttackAnimation(attacker, target, resolved, onApex, onComplete) {
+    if (!attacker || !target) {
+      if (onApex) onApex();
+      if (onComplete) onComplete();
+      return;
     }
 
-    this._showFloatingText(defenderX, defenderY - 28, `Roll: ${roll}`, '#ffffff');
-    this._showFloatingText(defenderX, defenderY + 8, label, color);
+    const originX = attacker.x;
+    const originY = attacker.y;
+    const dx = target.x - originX;
+    const dy = target.y - originY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.0001) {
+      if (onApex) onApex();
+      if (onComplete) onComplete();
+      return;
+    }
 
-    return { damage };
+    const lungeDist = Math.min(dist * 0.4, 28);
+    const apexX = originX + (dx / dist) * lungeDist;
+    const apexY = originY + (dy / dist) * lungeDist;
+
+    this.attackAnimating = true;
+
+    const finish = () => {
+      attacker.x = originX;
+      attacker.y = originY;
+      if (attacker.body && typeof attacker.body.reset === 'function') {
+        attacker.body.reset(originX, originY);
+      }
+      this.attackAnimating = false;
+      if (onComplete) onComplete();
+    };
+
+    this.tweens.add({
+      targets: attacker,
+      x: apexX,
+      y: apexY,
+      duration: 140,
+      ease: 'Cubic.easeOut',
+      onUpdate: () => {
+        if (attacker.body && typeof attacker.body.reset === 'function') {
+          attacker.body.reset(attacker.x, attacker.y);
+        }
+      },
+      onComplete: () => {
+        if (onApex) onApex();
+
+        if (resolved && resolved.outcome !== 'miss') {
+          if (typeof this._playSlashEffect === 'function') {
+            this._playSlashEffect(originX, originY, target.x, target.y);
+          }
+          if (typeof this._playHitReaction === 'function') {
+            this._playHitReaction(target);
+          }
+          if (resolved.outcome === 'crit' && this.cameras?.main?.shake) {
+            this.cameras.main.shake(150, 0.005);
+          }
+        }
+
+        this.tweens.add({
+          targets: attacker,
+          x: originX,
+          y: originY,
+          duration: 160,
+          ease: 'Cubic.easeIn',
+          onUpdate: () => {
+            if (attacker.body && typeof attacker.body.reset === 'function') {
+              attacker.body.reset(attacker.x, attacker.y);
+            }
+          },
+          onComplete: finish,
+        });
+      },
+    });
   },
 
   _charInAttackRange(char, weapon) {
@@ -151,7 +241,7 @@ const combatMethods = {
   },
 
   _endTurnManual() {
-    if (this.turnEnding) return;
+    if (this.turnEnding || this.attackAnimating) return;
     let totalSaved = 0;
     for (const c of this.chars) {
       if (!c.alive) {
@@ -214,12 +304,16 @@ const combatMethods = {
 
     const afterMove = () => {
       const t2 = this._selectEnemyTarget();
+      const continueTurn = () => {
+        if (this.dummy.alive) this._enemyAttackPhase();
+        else this.time.delayedCall(400, () => this._startPlayerTurn());
+      };
       if (brace && !this.braceTriggered && !wasInRange && t2 === target && this._charInAttackRange(target, targetWeapon)) {
         this.braceTriggered = true;
-        this._doBraceAttack(target);
+        this._doBraceAttack(target, continueTurn);
+        return;
       }
-      if (this.dummy.alive) this._enemyAttackPhase();
-      else this.time.delayedCall(400, () => this._startPlayerTurn());
+      continueTurn();
     };
 
     const enemyWeapon = this.dummy.weapon;
@@ -343,19 +437,23 @@ const combatMethods = {
       }
 
       this._enemyBudget -= scaledCost;
-      const { damage } = this._resolveAttack(this.dummy.weapon, target.inventory[0], target.sprite.x, target.sprite.y);
+      const resolved = this._rollResolvedAttack(this.dummy.weapon, target.inventory[0]);
+      let wipedOut = false;
 
-      target.hp = Math.max(0, target.hp - damage);
-
-      if (target.hp <= 0) {
-        this._killChar(target);
-        if (this.chars.every(c => !c.alive)) {
+      this._playAttackAnimation(this.dummyRect, target.sprite, resolved, () => {
+        this._showAttackText(target.sprite.x, target.sprite.y, resolved);
+        target.hp = Math.max(0, target.hp - resolved.damage);
+        if (target.hp <= 0) {
+          this._killChar(target);
+          if (this.chars.every(c => !c.alive)) wipedOut = true;
+        }
+      }, () => {
+        if (wipedOut) {
           this.time.delayedCall(1000, () => this._gameOver());
           return;
         }
-      }
-
-      this.time.delayedCall(500, tryAttack);
+        this.time.delayedCall(120, tryAttack);
+      });
     };
 
     tryAttack();
@@ -462,7 +560,7 @@ const combatMethods = {
   },
 
   _canAttack() {
-    if (!this.dummy.alive || this.turnEnding || this.inventoryOpen) return false;
+    if (!this.dummy.alive || this.turnEnding || this.inventoryOpen || this.attackAnimating) return false;
     const c = this._activeChar();
     if (!c.alive) return false;
     const w = c.inventory[0];
@@ -480,15 +578,32 @@ const combatMethods = {
     this.movesText.setText(this._distLabel());
     this._drawRange();
 
-    const { damage } = this._resolveAttack(w, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
-    this._applyDamageToDummy(damage);
+    const resolved = this._rollResolvedAttack(w, this.dummy.weapon);
+    const target = this.dummyRect;
+
+    this._playAttackAnimation(c.sprite, target, resolved, () => {
+      this._showAttackText(target.x, target.y, resolved);
+      this._applyDamageToDummy(resolved.damage);
+    }, () => {
+      this._drawAttackRange();
+      this._updateDummyOutline();
+    });
   },
 
-  _doBraceAttack(target) {
+  _doBraceAttack(target, onComplete) {
     const w = target.inventory[0];
     this._showFloatingText(target.sprite.x, target.sprite.y - 52, 'BRACE!', '#88ffff');
-    const { damage } = this._resolveAttack(w, this.dummy.weapon, this.dummyRect.x, this.dummyRect.y);
-    this._applyDamageToDummy(damage);
+    const resolved = this._rollResolvedAttack(w, this.dummy.weapon);
+    const enemy = this.dummyRect;
+
+    this._playAttackAnimation(target.sprite, enemy, resolved, () => {
+      this._showAttackText(enemy.x, enemy.y, resolved);
+      this._applyDamageToDummy(resolved.damage);
+    }, () => {
+      this._drawAttackRange();
+      this._updateDummyOutline();
+      if (onComplete) onComplete();
+    });
   },
 
   _applyDamageToDummy(damage) {

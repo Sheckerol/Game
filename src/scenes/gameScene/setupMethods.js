@@ -213,6 +213,7 @@ const setupMethods = {
     this.turnCount = 0;
     this.turnEnding = false;
     this.enemyMoving = false;
+    this.attackAnimating = false;
     this.braceTriggered = false;
     this.inventoryOpen = false;
 
