@@ -58,7 +58,7 @@ const renderAndUpdateMethods = {
         c.hpGfx.strokeCircle(c.sprite.x, c.sprite.y, PLAYER_HALF + 2);
       }
     }
-    if (this.enemyMoving && this.dummy.alive) this._updateDummyHp();
+    if (this.dummy.alive) this._updateDummyHp();
   },
 
   _updateDummyOutline() {
